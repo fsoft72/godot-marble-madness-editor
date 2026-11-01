@@ -77,97 +77,12 @@ const PALETTES: Array = [
 	["sec_elements_title", "element", Constants.ELEMENT_IDS, "elem_"],
 	["sec_decals_title", "decal", Constants.DECAL_IDS, "decal_"],
 ]
-## English texts, keyed like the I18N table in js/main.js (no emoji: the default font lacks them).
-const TEXTS := {
-	"brand_title": "MARBLE MADNESS 3D EDITOR",
-	"brand_badge": "3x3 BLOCK GRID",
-	"tool_select": "Select",
-	"tool_select_title": "Select and edit block (Key 1)",
-	"tool_paint_block": "Block Brush",
-	"tool_paint_block_title": "Paint 3x3 blocks (Key 2)",
-	"tool_paint_element": "Place Element",
-	"tool_paint_element_title": "Place 3D Elements like tubes, cones, flags (Key 3)",
-	"tool_paint_decal": "Place Decal",
-	"tool_paint_decal_title": "Apply Decals like arrows, GOAL, numbers 4-5-6 (Key 4)",
-	"tool_erase": "Eraser",
-	"tool_erase_title": "Remove block / Create void (Key 5)",
-	"tool_pick": "Copy",
-	"tool_pick_title": "Eyedropper: copy properties from block",
-	"cam_ortho": "Isometric",
-	"cam_ortho_title": "Arcade-faithful Isometric Orthographic Camera",
-	"cam_persp": "Perspective",
-	"cam_persp_title": "3D Perspective Camera",
-	"cam_reset": "Arcade View",
-	"cam_reset_title": "Align view to original Arcade framing",
-	"toggle_grid": "Grid",
-	"toggle_grid_title": "Show/Hide base grid",
-	"undo": "Undo",
-	"undo_title": "Undo (Ctrl+Z)",
-	"redo": "Redo",
-	"redo_title": "Redo (Ctrl+Y)",
-	"load_preset": "Level 1",
-	"load_preset_title": "Reload full Level 01 map from reference image",
-	"clear_map": "Clear",
-	"clear_map_title": "Clear the map",
-	"export_json": "JSON open",
-	"export_json_title": "Import a 3D Level (JSON)",
-	"save_json": "JSON save",
-	"save_json_title": "Export the 3D Level (JSON)",
-	"file_filter": "Level JSON (*.json)",
-	"dlg_open_title": "Open level JSON",
-	"dlg_save_title": "Save level JSON",
-	"dlg_error_title": "Error",
-	"err_invalid_json": "Invalid level: ",
-	"err_save_failed": "Cannot save the level: ",
-	"err_load_failed": "Cannot read the file: ",
-	"lang_toggle_btn": "EN",
-	"lang_toggle_title": "Switch language to Italiano (IT)",
-	"sec_shapes_title": "1. 3x3 Block Profile",
-	"sec_elements_title": "2. 3D Elements on Block",
-	"sec_decals_title": "3. Surface Decals",
-	"coords_prefix": "3x3 Block",
-	"coords_empty": "Empty",
-	"slope_short": "S",
-	"hud_mouse": "L-Click Select / Apply   -   R-Drag Rotate   -   M-Drag Pan   -   Wheel Zoom",
-	"hud_keys": "W/S Block Height   -   A/D Slope   -   Q/E Tilt   -   R Rotate 90   -   Del Delete",
-	"inspector_no_block": "No Block",
-	"inspector_block": "Block",
-	"inspector_empty_suffix": "(Empty)",
-	"lbl_elevation": "Base Height (Y)",
-	"lbl_slope": "Slope (Primary)",
-	"lbl_tilt": "Lateral Tilt",
-	"lbl_block_rot": "Block & Slope Rotation (Key R)",
-	"sec_orient_title": "Element & Decal Orientation",
-	"lbl_elem_rot": "3D Element Rotation (Tubes / Cones / Flags)",
-	"lbl_decal_rot": "Surface Decal Rotation (Arrows / Numbers)",
-	"sec_subtiles_title": "3x3 Sub-Blocks (Offset dY)",
-	"shape_flat": "Flat / Ramp",
-	"shape_chute_leg_x": "White Ramp R",
-	"shape_chute_leg_z": "Shadow Chute L",
-	"shape_fold_right": "Sharp Turn R",
-	"shape_fold_left": "Dark Turn L",
-	"shape_wing_left": "45 deg Wing Tip L",
-	"shape_chute_funnel": "Chute Funnel",
-	"shape_pit_stepped": "Stepped Pit",
-	"shape_goal_bevel": "GOAL Tip",
-	"shape_pit": "Pit (Rim Wall)",
-	"shape_subtiles_custom": "3x3 Sub-Grid",
-	"elem_none": "No Element",
-	"elem_tube_straight": "Straight Tube",
-	"elem_tube_corner": "L-Corner Tube",
-	"elem_tube_u": "U-Shape Tube",
-	"elem_cone_small": "Small Pyramid",
-	"elem_cone_large": "Large Pyramid",
-	"elem_goal_flags": "GOAL Flags",
-	"elem_marble_start": "Start Marble",
-	"decal_none": "No Decal",
-	"decal_arrow_wide_diag": "Large Arrow",
-	"decal_arrow_wide_ortho": "Straight Arrow",
-	"decal_arrow_long_chevrons": "Chevron Arrow",
-	"decal_arrow_shaft_only": "Arrow Shaft",
-	"decal_pad_456": "Numbers 4-5-6",
-	"decal_goal_banner": "GOAL Banner",
-}
+## Keys looked up directly in code (not through a registered control), listed for the key coverage test.
+const DIRECT_KEYS: Array[String] = [
+	"coords_prefix", "coords_empty", "coords_y", "slope_short",
+	"inspector_no_block", "inspector_block", "inspector_empty_suffix",
+	"file_filter", "err_invalid_json", "err_save_failed", "err_load_failed",
+]
 
 var _state: EditorState
 var _level: LevelData
@@ -195,6 +110,10 @@ var open_dialog: FileDialog
 var save_dialog: FileDialog
 var _error_dialog: AcceptDialog
 var _coords_label: Label
+## Last hovered cell, kept to re-render the coordinates badge after a language change.
+var _hover_cell: Vector2i = EditorState.NO_CELL
+## Last error shown as [text key, detail], kept to re-render the error dialog after a language change.
+var _last_error: Array = []
 ## True while refresh writes values, so widgets do not emit change signals.
 var _syncing := false
 ## True while a mouse button is held: slider and spin box changes are committed on release.
@@ -211,7 +130,7 @@ func _init() -> void:
 	theme = _build_theme()
 	_build_layout()
 	_build_dialogs()
-	_apply_texts()
+	refresh_texts()
 
 
 ## Tracks the mouse button state and commits held spin box edits on release.
@@ -266,6 +185,7 @@ func set_grid_active(active: bool) -> void:
 
 ## Shows a modal error dialog. The text key gives the message prefix and detail is appended to it.
 func show_error(text_key: String, detail: String) -> void:
+	_last_error = [text_key, detail]
 	_error_dialog.dialog_text = _t(text_key) + detail
 	_error_dialog.popup_centered()
 
@@ -293,6 +213,7 @@ func set_camera_mode(mode: int) -> void:
 
 ## Shows the hovered cell in the coordinates badge; NO_CELL shows dashes.
 func set_hover_cell(cell: Vector2i) -> void:
+	_hover_cell = cell
 	var prefix := _t("coords_prefix")
 	if cell == EditorState.NO_CELL or _level == null:
 		_coords_label.text = "%s [-, -]" % prefix
@@ -300,19 +221,74 @@ func set_hover_cell(cell: Vector2i) -> void:
 	var block := _level.get_block(cell.x, cell.y)
 	var info := _t("coords_empty")
 	if not block.is_empty() and block.get("isVoid", false) != true:
-		info = "Y:%.1f %s:%.1f" % [float(block["elevation"]), _t("slope_short"), float(block["slope"])]
+		info = "%s:%.1f %s:%.1f" % [_t("coords_y"), float(block["elevation"]), _t("slope_short"), float(block["slope"])]
 	_coords_label.text = "%s [%d, %d] - %s" % [prefix, cell.x, cell.y, info]
 
 
-## Returns the English text of a key. Task 13 replaces the body with the translation lookup.
+## Re-labels everything in the current language: registered controls, coordinates badge, inspector title, dialogs.
+func refresh_texts() -> void:
+	_apply_texts()
+	_apply_dialog_texts()
+	set_hover_cell(_hover_cell)
+	if _state != null: _refresh_inspector()
+	if _last_error.is_empty(): return
+	_error_dialog.dialog_text = _t(_last_error[0]) + _last_error[1]
+
+
+## Returns every text key the UI uses: registered controls plus the keys looked up directly.
+func used_keys() -> Array:
+	var keys: Array = DIRECT_KEYS.duplicate()
+	for entry in _texts:
+		if not keys.has(entry[1]): keys.append(entry[1])
+	return keys
+
+
+## Returns the text of the coordinates badge.
+func get_coords_text() -> String:
+	return _coords_label.text
+
+
+## Returns the text of the inspector title.
+func get_inspector_title() -> String:
+	return _title_label.text
+
+
+## Returns the text of both HUD hint labels, joined.
+func get_hud_text() -> String:
+	return _t("hud_mouse") + _t("hud_keys")
+
+
+## Returns the title of the "open" or "save" file dialog.
+func get_dialog_title(which: String) -> String:
+	return (open_dialog if which == "open" else save_dialog).title
+
+
+## Returns the first filter string of the open dialog.
+func get_dialog_filter() -> String:
+	return open_dialog.filters[0]
+
+
+## Returns the translated text of a key in the current language.
 func _t(key: String) -> String:
-	return TEXTS.get(key, key)
+	return I18n.t(key)
 
 
 ## Re-applies every registered text, for example after a language change.
 func _apply_texts() -> void:
 	for entry in _texts:
 		entry[0].set(entry[2], _t(entry[1]))
+
+
+## Switches between English and Italian and re-labels the UI.
+func _on_language_pressed() -> void:
+	I18n.set_language("it" if I18n.language() == "en" else "en")
+	refresh_texts()
+
+
+## Re-applies the translated file filter on both file dialogs.
+func _apply_dialog_texts() -> void:
+	for dialog in [open_dialog, save_dialog]:
+		dialog.filters = PackedStringArray(["*.json ; %s" % _t("file_filter")])
 
 
 ## Registers a control property that shows the text of a key.
@@ -336,7 +312,7 @@ func _make_button(key: String, toggle: bool = false) -> Button:
 	button.toggle_mode = toggle
 	button.focus_mode = Control.FOCUS_NONE
 	_bind_text(button, key)
-	if TEXTS.has(key + "_title"): _bind_text(button, key + "_title", "tooltip_text")
+	if I18n.has(key + "_title"): _bind_text(button, key + "_title", "tooltip_text")
 	_buttons[key] = button
 	return button
 
@@ -389,13 +365,13 @@ func _build_top_bar() -> Control:
 	redo.pressed.connect(func() -> void: redo_requested.emit())
 	flow.add_child(redo)
 	flow.add_child(VSeparator.new())
-	for key in ["load_preset", "clear_map", "export_json", "save_json", "lang_toggle_btn"]:
+	for key in ["load_preset", "clear_map", "open_json", "save_json", "lang_toggle_btn"]:
 		flow.add_child(_make_button(key))
 	_buttons["clear_map"].pressed.connect(func() -> void: clear_requested.emit())
-	_buttons["export_json"].pressed.connect(func() -> void: open_dialog.popup_centered_ratio(0.6))
+	_buttons["open_json"].pressed.connect(func() -> void: open_dialog.popup_centered_ratio(0.6))
 	_buttons["save_json"].pressed.connect(func() -> void: save_dialog.popup_centered_ratio(0.6))
-	for key in ["load_preset", "lang_toggle_btn"]:
-		_buttons[key].disabled = true
+	_buttons["load_preset"].disabled = true
+	_buttons["lang_toggle_btn"].pressed.connect(_on_language_pressed)
 	return panel
 
 
@@ -417,7 +393,6 @@ func _make_file_dialog(dialog_name: String, mode: FileDialog.FileMode, title_key
 	dialog.name = dialog_name
 	dialog.file_mode = mode
 	dialog.access = FileDialog.ACCESS_FILESYSTEM
-	dialog.filters = PackedStringArray(["*.json ; %s" % _t("file_filter")])
 	_bind_text(dialog, title_key, "title")
 	add_child(dialog)
 	return dialog
@@ -479,7 +454,6 @@ func _build_center() -> Control:
 	center.add_child(column)
 	_coords_label = Label.new()
 	_coords_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_coords_label.text = "3x3 Block [-, -]"
 	_add_outline(_coords_label)
 	column.add_child(_coords_label)
 	var spacer := _pass_through(Control.new())

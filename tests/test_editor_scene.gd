@@ -60,12 +60,12 @@ func test_paint_outside_grid_is_ignored() -> void:
 	await _free_editor(root)
 
 
-## Buttons for later tasks exist and are disabled.
+## Buttons for later tasks exist and are disabled; the language button is enabled.
 func test_later_task_buttons_disabled() -> void:
 	var root := await _make_editor()
-	for key in ["load_preset", "lang_toggle_btn"]:
-		var btn := root.ui.get_button(key)
-		assert_true(btn != null and btn.disabled, "%s disabled" % key)
+	var btn := root.ui.get_button("load_preset")
+	assert_true(btn != null and btn.disabled, "load_preset disabled")
+	assert_true(not root.ui.get_button("lang_toggle_btn").disabled, "language enabled")
 	await _free_editor(root)
 
 
@@ -450,7 +450,7 @@ func test_grid_follows_level_size() -> void:
 ## The file buttons are enabled and a file round trip works; bad files show the error dialog.
 func test_file_round_trip_and_errors() -> void:
 	var root := await _make_editor()
-	for key in ["clear_map", "export_json", "save_json"]:
+	for key in ["clear_map", "open_json", "save_json"]:
 		assert_true(not root.ui.get_button(key).disabled, "%s enabled" % key)
 	root.state.tool = EditorState.Tool.PAINT_BLOCK
 	root.paint_cell(Vector2i(5, 5))
