@@ -10,3 +10,4 @@
 - Added `History` undo/redo snapshot stacks (max 100 steps) with tests (`scripts/core/history.gd`, `tests/test_history.gd`).
 - Added `BlockSurface` (port of `rotateUV` and `getBlockSurfaceY`), the golden data generator `tools/gen_golden.mjs` and `tests/golden/surface_y.json` (1725 entries) with tests (`scripts/geometry/block_surface.gd`, `tests/test_block_surface.gd`).
 - Added `TextureFactory` (procedural top surface, cliff and flag materials, decals drawn with Image primitives, cached) with tests (`scripts/geometry/texture_factory.gd`, `tests/test_texture_factory.gd`).
+- Added `BlockMeshBuilder` (port of `buildBlockMeshGroup`: top tiles with vertex shades, cliff walls with trim, stepped sub-tiles, cutouts, goal_bevel, Godot clockwise winding, named surfaces, collision faces derived from the same generated parts) with tests (`scripts/geometry/block_mesh_builder.gd`, `tests/test_block_mesh_builder.gd`).
