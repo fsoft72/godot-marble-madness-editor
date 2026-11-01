@@ -1,0 +1,11 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="Marble Madness Editor"
+config/features=PackedStringArray("4.6")
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
