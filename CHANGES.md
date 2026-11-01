@@ -8,3 +8,4 @@
 - Test runner now fails a test method that logs a runtime script error (Logger via OS.add_logger, `tests/error_capture.gd`).
 - Added `BlockData`, `LevelData` and tolerant `LevelIO` (JSON load/save, snapshot/restore in place) with tests (`scripts/core/`, `tests/test_level_io.gd`).
 - Added `History` undo/redo snapshot stacks (max 100 steps) with tests (`scripts/core/history.gd`, `tests/test_history.gd`).
+- Added `BlockSurface` (port of `rotateUV` and `getBlockSurfaceY`), the golden data generator `tools/gen_golden.mjs` and `tests/golden/surface_y.json` (1725 entries) with tests (`scripts/geometry/block_surface.gd`, `tests/test_block_surface.gd`).
