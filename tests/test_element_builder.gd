@@ -82,3 +82,36 @@ func test_pit_block_builds_element() -> void:
 	var node := _build("cone_small", 0, {"shape": "pit"})
 	assert_true(_meshes(node).size() > 0, "pit cone built")
 	node.free()
+
+
+## Returns the albedo color of the marble glass sphere built with the given marbleColor.
+func _marble_color(value: Variant) -> Color:
+	var node := _build("marble_start", 0, {"marbleColor": value})
+	var color := Color.BLACK
+	for m in _meshes(node):
+		if m.name == "MarbleSphere": color = (m.material_override as StandardMaterial3D).albedo_color
+	node.free()
+	return color
+
+
+## A '#rrggbb' string colors the marble and keeps the glass alpha.
+func test_marble_color_html_string() -> void:
+	var c := _marble_color("#1020ff")
+	assert_near(c.r, 0x10 / 255.0, 0.001, "r")
+	assert_near(c.g, 0x20 / 255.0, 0.001, "g")
+	assert_near(c.b, 1.0, 0.001, "b")
+	assert_near(c.a, 0x85 / 255.0, 0.001, "alpha")
+
+
+## An int colors the marble.
+func test_marble_color_int() -> void:
+	var c := _marble_color(0x00ff00)
+	assert_near(c.g, 1.0, 0.001, "g")
+	assert_near(c.r, 0.0, 0.001, "r")
+
+
+## An invalid string falls back to the default red.
+func test_marble_color_invalid_falls_back() -> void:
+	var c := _marble_color("not a color")
+	assert_near(c.r, 0xe6 / 255.0, 0.001, "default r")
+	assert_near(c.g, 0x19 / 255.0, 0.001, "default g")

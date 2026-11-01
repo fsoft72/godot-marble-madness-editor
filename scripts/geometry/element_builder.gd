@@ -217,14 +217,14 @@ static func _build_marble(root: Node3D, block: Dictionary, rot: float) -> void:
 	inner.rotation = Vector3(PI * 0.22, deg_to_rad(rot), PI * 0.15)
 	marble.add_child(inner)
 	_add_inner_points(inner)
-	var color_value := int(BlockSurface._num(block.get("marbleColor"))) if block.has("marbleColor") and not block["marbleColor"] is String else DEFAULT_MARBLE_COLOR
+	var marble_color := _parse_marble_color(block.get("marbleColor"))
 	var sphere_mesh := SphereMesh.new()
 	sphere_mesh.radius = MARBLE_RADIUS
 	sphere_mesh.height = MARBLE_RADIUS * 2.0
 	sphere_mesh.radial_segments = 32
 	sphere_mesh.rings = 16
 	var glass := StandardMaterial3D.new()
-	glass.albedo_color = Color.hex((color_value << 8) | 0x85)
+	glass.albedo_color = Color(marble_color, 0x85 / 255.0)
 	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glass.metallic_specular = 1.0
 	glass.roughness = 0.12
@@ -250,3 +250,11 @@ static func _add_inner_points(inner: Node3D) -> void:
 	median_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	for i in range(points.size()):
 		_add_mesh(inner, dot, corner_mat if i < 4 else median_mat, points[i])
+
+
+## Parses marbleColor: a '#rrggbb' string or an int 0xrrggbb; invalid values give the default red.
+static func _parse_marble_color(value: Variant) -> Color:
+	var fallback := Color.hex((DEFAULT_MARBLE_COLOR << 8) | 0xff)
+	if value is String: return Color.html(value) if Color.html_is_valid(value) else fallback
+	if value is int or value is float: return Color.hex((int(value) << 8) | 0xff)
+	return fallback
