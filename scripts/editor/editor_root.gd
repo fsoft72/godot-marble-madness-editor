@@ -27,6 +27,8 @@ const PALETTE_TOOLS := {
 	"element": EditorState.Tool.PAINT_ELEMENT,
 	"decal": EditorState.Tool.PAINT_DECAL,
 }
+## Rotation property rotated by a second palette click, per brush key.
+const ROTATION_PROPS := {"shape": "rotation", "element": "elemRotation", "decal": "decalRotation"}
 ## Tool for each number key.
 const TOOL_KEYS := {
 	KEY_1: EditorState.Tool.SELECT,
@@ -181,6 +183,9 @@ func apply_subtile_value(row: int, col: int, value: float) -> void:
 
 ## Sets a brush value from a palette click; in Select mode with a selection the block is edited too.
 func apply_palette_pick(kind: String, id: String) -> void:
+	if state.brush[kind] == id:
+		_rotate_active_item(kind)
+		return
 	state.brush[kind] = id
 	if state.tool == EditorState.Tool.SELECT and _selection_valid():
 		history.push(level)
@@ -196,6 +201,15 @@ func apply_palette_pick(kind: String, id: String) -> void:
 		state.tool = PALETTE_TOOLS[kind]
 	state.brush_changed.emit()
 	_after_edit()
+
+
+## Handles a click on the active palette item: rotates its brush rotation by 90 degrees.
+## A selected block follows (one snapshot); otherwise the matching paint tool is selected.
+func _rotate_active_item(kind: String) -> void:
+	var prop: String = ROTATION_PROPS[kind]
+	if not (state.tool == EditorState.Tool.SELECT and _selection_valid()):
+		state.tool = PALETTE_TOOLS[kind]
+	apply_inspector_value(prop, (int(state.brush[prop]) + Tools.ROTATE_STEP) % 360)
 
 
 ## Starts a stroke with a left click on the 3D view.

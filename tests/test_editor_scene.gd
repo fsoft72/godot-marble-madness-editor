@@ -160,3 +160,21 @@ func test_pointer_over_ui_detection() -> void:
 		assert_eq(root._pointer_over_ui(), probes[label][1], "over ui at %s: %s size %s" % [label, tree.root.gui_get_hovered_control(), size])
 	await _free_editor(root)
 	tree.root.size = old_size
+
+
+## A second click on the active palette item rotates the brush by 90 degrees.
+func test_second_palette_click_rotates() -> void:
+	var root := await _make_editor()
+	var cases := {"shape": ["pit", "rotation"], "element": ["tube_u", "elemRotation"], "decal": ["pad_456", "decalRotation"]}
+	for kind in cases:
+		var id: String = cases[kind][0]
+		var prop: String = cases[kind][1]
+		root.state.brush[prop] = 0
+		root.apply_palette_pick(kind, id)
+		assert_eq(root.state.brush[prop], 0, "%s first click keeps rotation" % kind)
+		root.apply_palette_pick(kind, id)
+		assert_eq(root.state.brush[prop], 90, "%s second click rotates" % kind)
+		root.state.brush[prop] = 270
+		root.apply_palette_pick(kind, id)
+		assert_eq(root.state.brush[prop], 0, "%s wraps" % kind)
+	await _free_editor(root)
