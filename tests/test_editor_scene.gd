@@ -63,7 +63,7 @@ func test_paint_outside_grid_is_ignored() -> void:
 ## Buttons for later tasks exist and are disabled.
 func test_later_task_buttons_disabled() -> void:
 	var root := await _make_editor()
-	for key in ["toggle_grid", "clear_map", "export_json", "load_preset", "lang_toggle_btn"]:
+	for key in ["load_preset", "lang_toggle_btn"]:
 		var btn := root.ui.get_button(key)
 		assert_true(btn != null and btn.disabled, "%s disabled" % key)
 	await _free_editor(root)
@@ -332,4 +332,152 @@ func test_click_on_view_releases_text_focus() -> void:
 	assert_true(tree.root.gui_get_focus_owner() == field, "field focused")
 	root._handle_mouse_button(_click(_cell_pos(root, Vector2i(5, 5)), true))
 	assert_true(tree.root.gui_get_focus_owner() == null, "focus released")
+	await _free_editor(root)
+
+
+## Level JSON text with the given size and one block.
+func _level_text(cols: int, rows: int) -> String:
+	var level := LevelData.new()
+	level.cols = cols
+	level.rows = rows
+	level.set_block(1, 1, BlockData.make(1, 1, {"elevation": 6.0}))
+	return LevelIO.serialize(level)
+
+
+## Invalid text returns false, shows an error and leaves level, history and view untouched.
+func test_load_invalid_text_keeps_level() -> void:
+	var root := await _make_editor()
+	root.paint_cell(Vector2i(2, 2))
+	root.state.tool = EditorState.Tool.PAINT_BLOCK
+	root.paint_cell(Vector2i(2, 2))
+	var before := root.level.snapshot()
+	root.history = History.new()
+	for text in ["{not json", "[1, 2]", "{\"cols\": 5}", "{\"blocks\": 3}"]:
+		assert_true(not root.load_level_from_text(text), "rejected: %s" % text)
+		assert_eq(root.level.snapshot(), before, "level untouched: %s" % text)
+		assert_true(not root.history.can_undo(), "no snapshot: %s" % text)
+		assert_true(root.ui.is_error_visible(), "error shown: %s" % text)
+		assert_true(root.ui.get_error_text() != "", "error text: %s" % text)
+	assert_true(root.view.block_node(2, 2) != null, "node kept")
+	await _free_editor(root)
+
+
+## A valid load replaces the level in place, and undo restores the old level, size and framing.
+func test_load_valid_then_undo() -> void:
+	var root := await _make_editor()
+	root.state.tool = EditorState.Tool.PAINT_BLOCK
+	root.paint_cell(Vector2i(9, 9))
+	var level_ref := root.level
+	var history_ref := root.history
+	assert_true(root.load_level_from_text(_level_text(6, 6)), "load ok")
+	assert_true(root.level == level_ref and root.history == history_ref, "references kept")
+	assert_eq(root.level.cols, 6, "cols")
+	assert_true(root.view.block_node(1, 1) != null, "loaded node")
+	assert_true(root.view.block_node(9, 9) == null, "old node removed")
+	assert_true(root.rig.focus.is_equal_approx(Vector3(9.0, BlockData.defaults()["elevation"], 9.0)), "reframed")
+	root.undo()
+	assert_eq(root.level.blocks.keys(), ["9,9"], "undo restores blocks")
+	assert_eq(root.level.cols, 14, "size restored")
+	assert_true(root.view.block_node(9, 9) != null, "old node back")
+	assert_true(root.view.block_node(1, 1) == null, "loaded node gone")
+	assert_true(root.rig.focus.is_equal_approx(Vector3(21.0, BlockData.defaults()["elevation"], 21.0)), "reframed back")
+	root.redo()
+	assert_eq(root.level.cols, 6, "redo reloads")
+	await _free_editor(root)
+
+
+## Loading a smaller level drops an out-of-range selection and ends a running stroke.
+func test_load_revalidates_selection_and_stroke() -> void:
+	var root := await _make_editor()
+	root.state.selected = Vector2i(10, 10)
+	root._stroke_active = true
+	assert_true(root.load_level_from_text(_level_text(6, 6)), "load ok")
+	assert_eq(root.state.selected, EditorState.NO_CELL, "selection cleared")
+	assert_true(not root._stroke_active, "stroke ended")
+	root.state.selected = Vector2i(1, 1)
+	assert_true(root.load_level_from_text(_level_text(6, 6)), "load ok again")
+	assert_eq(root.state.selected, Vector2i(1, 1), "valid selection kept")
+	await _free_editor(root)
+
+
+## Clear empties the level, keeps the size and is one undo step; clearing an empty level pushes nothing.
+func test_clear_keeps_size_and_is_undoable() -> void:
+	var root := await _make_editor()
+	root.clear_level()
+	assert_true(not root.history.can_undo(), "empty clear pushes no snapshot")
+	root.state.tool = EditorState.Tool.PAINT_BLOCK
+	root.paint_cell(Vector2i(3, 3))
+	root.paint_cell(Vector2i(4, 4))
+	root.history = History.new()
+	root.clear_level()
+	assert_true(root.level.blocks.is_empty(), "blocks gone")
+	assert_eq(root.level.cols, 14, "size kept")
+	assert_true(root.view.block_node(3, 3) == null, "node removed")
+	assert_true(root.history.can_undo(), "snapshot pushed")
+	root.undo()
+	assert_eq(root.level.blocks.size(), 2, "undo restores blocks")
+	assert_true(root.view.block_node(4, 4) != null, "node back")
+	await _free_editor(root)
+
+
+## The grid is hidden by default, the toggle flips it and the Grid button shows the state.
+func test_toggle_grid() -> void:
+	var root := await _make_editor()
+	var button := root.ui.get_button("toggle_grid")
+	assert_true(not button.disabled, "button enabled")
+	assert_true(not root.grid.visible and not button.button_pressed, "hidden by default")
+	root.toggle_grid()
+	assert_true(root.grid.visible and button.button_pressed, "shown")
+	button.pressed.emit()
+	assert_true(not root.grid.visible, "button press toggles")
+	await _free_editor(root)
+
+
+## The grid lines cover the grid area and follow a level size change.
+func test_grid_follows_level_size() -> void:
+	var root := await _make_editor()
+	assert_eq(root.grid.get_aabb().size.x, 14.0 * Constants.BLOCK_SIZE, "width")
+	assert_eq(root.grid.line_count(), 2 * 15, "lines for 14 cells")
+	assert_true(root.grid.get_aabb().get_center().is_equal_approx(Vector3(21.0, 0.0, 21.0)), "centered on level")
+	root.load_level_from_text(_level_text(6, 6))
+	assert_eq(root.grid.line_count(), 2 * 7, "lines for 6 cells")
+	assert_eq(root.grid.get_aabb().size.x, 6.0 * Constants.BLOCK_SIZE, "new width")
+	root.undo()
+	assert_eq(root.grid.line_count(), 2 * 15, "restored by undo")
+	await _free_editor(root)
+
+
+## The file buttons are enabled and a file round trip works; bad files show the error dialog.
+func test_file_round_trip_and_errors() -> void:
+	var root := await _make_editor()
+	for key in ["clear_map", "export_json", "save_json"]:
+		assert_true(not root.ui.get_button(key).disabled, "%s enabled" % key)
+	root.state.tool = EditorState.Tool.PAINT_BLOCK
+	root.paint_cell(Vector2i(5, 5))
+	var path := "user://test_task12_level.json"
+	assert_true(root.save_level_to_file(path), "saved")
+	root.clear_level()
+	assert_true(root.load_level_from_file(path), "loaded")
+	assert_true(not root.level.get_block(5, 5).is_empty(), "block back")
+	DirAccess.remove_absolute(path)
+	var snap := root.level.snapshot()
+	assert_true(not root.load_level_from_file("user://missing_task12.json"), "missing file rejected")
+	assert_true(root.ui.is_error_visible(), "error for missing file")
+	root.ui.hide_error()
+	assert_true(not root.save_level_to_file("user://no_such_dir_task12/x.json"), "save failure")
+	assert_true(root.ui.is_error_visible(), "error for save failure")
+	assert_eq(root.level.snapshot(), snap, "level untouched after failures")
+	await _free_editor(root)
+
+
+## The file dialogs filter *.json and open the right modes.
+func test_file_dialogs_configured() -> void:
+	var root := await _make_editor()
+	var open_dialog := root.ui.open_dialog
+	var save_dialog := root.ui.save_dialog
+	assert_eq(open_dialog.file_mode, FileDialog.FILE_MODE_OPEN_FILE, "open mode")
+	assert_eq(save_dialog.file_mode, FileDialog.FILE_MODE_SAVE_FILE, "save mode")
+	assert_eq(open_dialog.access, FileDialog.ACCESS_FILESYSTEM, "open access")
+	assert_eq(save_dialog.access, FileDialog.ACCESS_FILESYSTEM, "save access")
+	assert_true("*.json" in open_dialog.filters[0] and "*.json" in save_dialog.filters[0], "json filter")
 	await _free_editor(root)

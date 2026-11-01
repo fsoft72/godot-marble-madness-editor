@@ -62,6 +62,8 @@ var view := LevelView.new()
 var rig := CameraRig.new()
 ## Interface.
 var ui := EditorUI.new()
+## Wireframe grid, hidden by default like showGridHelper in the JS.
+var grid := GridLines.new()
 
 var _hover_cursor := MeshInstance3D.new()
 var _select_cursor := MeshInstance3D.new()
@@ -85,6 +87,9 @@ func _ready() -> void:
 	rig.name = "CameraRig"
 	add_child(rig)
 	center_camera(true)
+	grid.visible = false
+	add_child(grid)
+	grid.rebuild(level.cols, level.rows)
 	_build_cursor(_hover_cursor, HOVER_COLOR)
 	_build_cursor(_select_cursor, SELECT_COLOR)
 	var layer := CanvasLayer.new()
@@ -146,14 +151,58 @@ func center_camera(reset_view: bool = false) -> void:
 func undo() -> void:
 	_end_stroke()
 	if not history.undo(level): return
-	_after_history_change()
+	_after_level_replaced()
 
 
 ## Redoes the last undone step and rebuilds the view.
 func redo() -> void:
 	_end_stroke()
 	if not history.redo(level): return
-	_after_history_change()
+	_after_level_replaced()
+
+
+## Parses level JSON and replaces the level contents in place, as one undo step.
+## On a parse error shows the error dialog, returns false and changes nothing.
+func load_level_from_text(text: String) -> bool:
+	var result := LevelIO.parse(text)
+	if not result["ok"]:
+		ui.show_error("err_invalid_json", result["error"])
+		return false
+	history.push(level)
+	level.copy_from(result["level"])
+	_after_level_replaced()
+	return true
+
+
+## Reads a level file and loads it. Shows the error dialog and returns false on failure.
+func load_level_from_file(path: String) -> bool:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		ui.show_error("err_load_failed", "%s (error %d)" % [path, FileAccess.get_open_error()])
+		return false
+	return load_level_from_text(file.get_as_text())
+
+
+## Writes the level to a file. Shows the error dialog and returns false on failure; the level is never changed.
+func save_level_to_file(path: String) -> bool:
+	var err := LevelIO.save_file(path, level)
+	if err == OK: return true
+	ui.show_error("err_save_failed", "%s (error %d)" % [path, err])
+	return false
+
+
+## Removes every block and keeps the grid size, as one undo step. Does nothing on an empty level.
+func clear_level() -> void:
+	if level.blocks.is_empty(): return
+	history.push(level)
+	level.clear()
+	_after_level_replaced()
+
+
+## Shows or hides the wireframe grid.
+func toggle_grid() -> void:
+	grid.visible = not grid.visible
+	ui.set_grid_active(grid.visible)
 
 
 ## Commits an inspector value: the brush always follows, a selected cell is edited with one snapshot.
@@ -307,9 +356,14 @@ func _after_edit() -> void:
 	ui.refresh()
 
 
-## Rebuilds the view after undo or redo and recenters only if the level size changed.
-func _after_history_change() -> void:
+## Brings view, grid, selection, camera and UI in line after the level contents were replaced
+## (undo, redo, load or clear). Recenters only if the level size changed.
+func _after_level_replaced() -> void:
+	_end_stroke()
+	if state.selected != EditorState.NO_CELL and not level.in_bounds(state.selected.x, state.selected.y):
+		state.selected = EditorState.NO_CELL
 	view.rebuild_all()
+	grid.rebuild(level.cols, level.rows)
 	Tools.sync_brush_from_selection(state, level)
 	if _centered_size != Vector2i(level.cols, level.rows): center_camera(false)
 	_after_edit()
@@ -344,6 +398,10 @@ func _connect_ui() -> void:
 	ui.palette_picked.connect(apply_palette_pick)
 	ui.inspector_changed.connect(apply_inspector_value)
 	ui.subtile_changed.connect(apply_subtile_value)
+	ui.grid_toggle_requested.connect(toggle_grid)
+	ui.clear_requested.connect(clear_level)
+	ui.open_path_chosen.connect(func(path: String) -> void: load_level_from_file(path))
+	ui.save_path_chosen.connect(func(path: String) -> void: save_level_to_file(path))
 
 
 ## Adds black background, ambient light, the sun with shadows and the blue fill light.

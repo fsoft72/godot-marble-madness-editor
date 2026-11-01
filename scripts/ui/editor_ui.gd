@@ -19,6 +19,14 @@ signal palette_picked(kind: String, id: String)
 signal inspector_changed(prop: String, value: Variant)
 ## Emitted when a sub-height field is committed.
 signal subtile_changed(row: int, col: int, value: float)
+## Emitted when the Grid button is pressed.
+signal grid_toggle_requested
+## Emitted when the Clear button is pressed.
+signal clear_requested
+## Emitted when a file is chosen in the open dialog.
+signal open_path_chosen(path: String)
+## Emitted when a file is chosen in the save dialog.
+signal save_path_chosen(path: String)
 
 ## Width of the side panels in pixels.
 const LEFT_PANEL_WIDTH := 236
@@ -105,6 +113,13 @@ const TEXTS := {
 	"export_json_title": "Import a 3D Level (JSON)",
 	"save_json": "JSON save",
 	"save_json_title": "Export the 3D Level (JSON)",
+	"file_filter": "Level JSON (*.json)",
+	"dlg_open_title": "Open level JSON",
+	"dlg_save_title": "Save level JSON",
+	"dlg_error_title": "Error",
+	"err_invalid_json": "Invalid level: ",
+	"err_save_failed": "Cannot save the level: ",
+	"err_load_failed": "Cannot read the file: ",
 	"lang_toggle_btn": "EN",
 	"lang_toggle_title": "Switch language to Italiano (IT)",
 	"sec_shapes_title": "1. 3x3 Block Profile",
@@ -175,6 +190,10 @@ var _subtile_fields: Array[SpinBox] = []
 ## Controls with text from the TEXTS table: [control, key, property].
 var _texts: Array = []
 var _title_label: Label
+## File dialogs and the error dialog, created in _build_dialogs.
+var open_dialog: FileDialog
+var save_dialog: FileDialog
+var _error_dialog: AcceptDialog
 var _coords_label: Label
 ## True while refresh writes values, so widgets do not emit change signals.
 var _syncing := false
@@ -191,6 +210,7 @@ func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	theme = _build_theme()
 	_build_layout()
+	_build_dialogs()
 	_apply_texts()
 
 
@@ -239,6 +259,32 @@ func refresh() -> void:
 	_syncing = false
 
 
+## Shows the pressed state of the Grid button without emitting.
+func set_grid_active(active: bool) -> void:
+	_buttons["toggle_grid"].set_pressed_no_signal(active)
+
+
+## Shows a modal error dialog. The text key gives the message prefix and detail is appended to it.
+func show_error(text_key: String, detail: String) -> void:
+	_error_dialog.dialog_text = _t(text_key) + detail
+	_error_dialog.popup_centered()
+
+
+## Returns true while the error dialog is open.
+func is_error_visible() -> bool:
+	return _error_dialog.visible
+
+
+## Returns the text of the error dialog.
+func get_error_text() -> String:
+	return _error_dialog.dialog_text
+
+
+## Closes the error dialog.
+func hide_error() -> void:
+	_error_dialog.hide()
+
+
 ## Updates the camera mode buttons.
 func set_camera_mode(mode: int) -> void:
 	for m in _mode_buttons:
@@ -270,7 +316,7 @@ func _apply_texts() -> void:
 
 
 ## Registers a control property that shows the text of a key.
-func _bind_text(control: Control, key: String, property: String = "text") -> void:
+func _bind_text(control: Object, key: String, property: String = "text") -> void:
 	_texts.append([control, key, property])
 
 
@@ -334,6 +380,7 @@ func _build_top_bar() -> Control:
 	flow.add_child(VSeparator.new())
 	_add_camera_buttons(flow)
 	var grid := _make_button("toggle_grid", true)
+	grid.pressed.connect(func() -> void: grid_toggle_requested.emit())
 	flow.add_child(grid)
 	var undo := _make_button("undo")
 	undo.pressed.connect(func() -> void: undo_requested.emit())
@@ -344,9 +391,36 @@ func _build_top_bar() -> Control:
 	flow.add_child(VSeparator.new())
 	for key in ["load_preset", "clear_map", "export_json", "save_json", "lang_toggle_btn"]:
 		flow.add_child(_make_button(key))
-	for key in ["toggle_grid", "load_preset", "clear_map", "export_json", "save_json", "lang_toggle_btn"]:
+	_buttons["clear_map"].pressed.connect(func() -> void: clear_requested.emit())
+	_buttons["export_json"].pressed.connect(func() -> void: open_dialog.popup_centered_ratio(0.6))
+	_buttons["save_json"].pressed.connect(func() -> void: save_dialog.popup_centered_ratio(0.6))
+	for key in ["load_preset", "lang_toggle_btn"]:
 		_buttons[key].disabled = true
 	return panel
+
+
+## Creates the open and save file dialogs and the error dialog.
+func _build_dialogs() -> void:
+	open_dialog = _make_file_dialog("OpenDialog", FileDialog.FILE_MODE_OPEN_FILE, "dlg_open_title")
+	open_dialog.file_selected.connect(func(path: String) -> void: open_path_chosen.emit(path))
+	save_dialog = _make_file_dialog("SaveDialog", FileDialog.FILE_MODE_SAVE_FILE, "dlg_save_title")
+	save_dialog.file_selected.connect(func(path: String) -> void: save_path_chosen.emit(path))
+	_error_dialog = AcceptDialog.new()
+	_error_dialog.name = "ErrorDialog"
+	_bind_text(_error_dialog, "dlg_error_title", "title")
+	add_child(_error_dialog)
+
+
+## Creates one file dialog on the real file system filtered to JSON files.
+func _make_file_dialog(dialog_name: String, mode: FileDialog.FileMode, title_key: String) -> FileDialog:
+	var dialog := FileDialog.new()
+	dialog.name = dialog_name
+	dialog.file_mode = mode
+	dialog.access = FileDialog.ACCESS_FILESYSTEM
+	dialog.filters = PackedStringArray(["*.json ; %s" % _t("file_filter")])
+	_bind_text(dialog, title_key, "title")
+	add_child(dialog)
+	return dialog
 
 
 ## Adds the Isometric, Perspective and Arcade View buttons.
