@@ -11,10 +11,10 @@ config_version=5
 [application]
 
 config/name="Marble Madness Editor"
-config/name.player="Marble Madness"
 run/main_scene="res://scenes/editor.tscn"
-run/main_scene.player="res://scenes/player.tscn"
 config/features=PackedStringArray("4.6")
+config/name.player="Marble Madness"
+run/main_scene.player="res://scenes/player.tscn"
 
 [physics]
 
