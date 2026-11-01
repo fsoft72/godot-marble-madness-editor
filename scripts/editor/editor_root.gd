@@ -7,6 +7,8 @@ extends Node3D
 const CURSOR_LIFT := 0.08
 const HOVER_COLOR := Color(1.0, 1.0, 1.0, 0.28)
 const SELECT_COLOR := Color(0.93, 0.8, 0.41, 0.45)
+## Bundled Level 1 preset.
+const LEVEL01_PATH := "res://data/level01.json"
 ## Sun and ambient settings from js/main.js.
 const AMBIENT_ENERGY := 0.72
 const SUN_COLOR := Color("fffaf0")
@@ -181,6 +183,14 @@ func load_level_from_file(path: String) -> bool:
 		ui.show_error("err_load_failed", "%s (error %d)" % [path, FileAccess.get_open_error()])
 		return false
 	return load_level_from_text(file.get_as_text())
+
+
+## Loads the bundled Level 1 preset as one undo step and resets the camera to the arcade view.
+## Shows the error dialog and returns false on failure.
+func load_level01() -> bool:
+	if not load_level_from_file(LEVEL01_PATH): return false
+	center_camera(true)
+	return true
 
 
 ## Writes the level to a file. Shows the error dialog and returns false on failure; the level is never changed.
@@ -400,6 +410,7 @@ func _connect_ui() -> void:
 	ui.subtile_changed.connect(apply_subtile_value)
 	ui.grid_toggle_requested.connect(toggle_grid)
 	ui.clear_requested.connect(clear_level)
+	ui.load_level01_requested.connect(load_level01)
 	ui.open_path_chosen.connect(func(path: String) -> void: load_level_from_file(path))
 	ui.save_path_chosen.connect(func(path: String) -> void: save_level_to_file(path))
 

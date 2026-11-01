@@ -23,12 +23,17 @@ signal subtile_changed(row: int, col: int, value: float)
 signal grid_toggle_requested
 ## Emitted when the Clear button is pressed.
 signal clear_requested
+## Emitted when the Level 1 button is pressed.
+signal load_level01_requested
 ## Emitted when a file is chosen in the open dialog.
 signal open_path_chosen(path: String)
 ## Emitted when a file is chosen in the save dialog.
 signal save_path_chosen(path: String)
 
 ## Width of the side panels in pixels.
+## Reference image traced over the view, and its opacity when shown.
+const OVERLAY_TEXTURE_PATH := "res://assets/level01_ref.png"
+const OVERLAY_ALPHA := 0.5
 const LEFT_PANEL_WIDTH := 236
 const RIGHT_PANEL_WIDTH := 272
 ## Palette grid columns.
@@ -110,6 +115,8 @@ var open_dialog: FileDialog
 var save_dialog: FileDialog
 var _error_dialog: AcceptDialog
 var _coords_label: Label
+## Semi-transparent reference image over the 3D view, hidden by default.
+var _overlay: TextureRect
 ## Last hovered cell, kept to re-render the coordinates badge after a language change.
 var _hover_cell: Vector2i = EditorState.NO_CELL
 ## Last error shown as [text key, detail], kept to re-render the error dialog after a language change.
@@ -154,6 +161,11 @@ func bind(state: EditorState, level: LevelData, history: History) -> void:
 ## Returns the button registered under a text key, or null.
 func get_button(key: String) -> Button:
 	return _buttons.get(key)
+
+
+## Returns the reference image overlay.
+func get_overlay() -> TextureRect:
+	return _overlay
 
 
 ## Returns the inspector slider of a block property.
@@ -358,6 +370,9 @@ func _build_top_bar() -> Control:
 	var grid := _make_button("toggle_grid", true)
 	grid.pressed.connect(func() -> void: grid_toggle_requested.emit())
 	flow.add_child(grid)
+	var overlay_button := _make_button("toggle_overlay", true)
+	overlay_button.toggled.connect(func(on: bool) -> void: _overlay.visible = on)
+	flow.add_child(overlay_button)
 	var undo := _make_button("undo")
 	undo.pressed.connect(func() -> void: undo_requested.emit())
 	flow.add_child(undo)
@@ -370,7 +385,7 @@ func _build_top_bar() -> Control:
 	_buttons["clear_map"].pressed.connect(func() -> void: clear_requested.emit())
 	_buttons["open_json"].pressed.connect(func() -> void: open_dialog.popup_centered_ratio(0.6))
 	_buttons["save_json"].pressed.connect(func() -> void: save_dialog.popup_centered_ratio(0.6))
-	_buttons["load_preset"].disabled = true
+	_buttons["load_preset"].pressed.connect(func() -> void: load_level01_requested.emit())
 	_buttons["lang_toggle_btn"].pressed.connect(_on_language_pressed)
 	return panel
 
@@ -450,6 +465,8 @@ func _build_center() -> Control:
 	center.add_theme_constant_override("margin_right", 10)
 	center.add_theme_constant_override("margin_top", 8)
 	center.add_theme_constant_override("margin_bottom", 8)
+	_overlay = _build_overlay()
+	center.add_child(_overlay)
 	var column := _pass_through(VBoxContainer.new())
 	center.add_child(column)
 	_coords_label = Label.new()
@@ -465,6 +482,19 @@ func _build_center() -> Control:
 		_add_outline(hint)
 		column.add_child(hint)
 	return center
+
+
+## Builds the hidden reference image overlay; it never takes mouse input so painting is not blocked.
+func _build_overlay() -> TextureRect:
+	var rect := TextureRect.new()
+	rect.name = "ReferenceOverlay"
+	rect.texture = load(OVERLAY_TEXTURE_PATH) as Texture2D
+	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rect.modulate = Color(1, 1, 1, OVERLAY_ALPHA)
+	rect.visible = false
+	return rect
 
 
 ## Gives an overlay label a dark outline so it stays readable over the 3D view.

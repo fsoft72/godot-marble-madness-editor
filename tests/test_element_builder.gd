@@ -115,3 +115,31 @@ func test_marble_color_invalid_falls_back() -> void:
 	var c := _marble_color("not a color")
 	assert_near(c.r, 0xe6 / 255.0, 0.001, "default r")
 	assert_near(c.g, 0x19 / 255.0, 0.001, "default g")
+
+
+## The cone is flat shaded like the JS (flatShading: true): all vertices of a triangle share its face normal.
+func test_cone_is_flat_shaded() -> void:
+	var node := _build("cone_small")
+	var cone: MeshInstance3D = null
+	for m in _meshes(node):
+		var mat := m.material_override as StandardMaterial3D
+		if mat != null and mat.albedo_color.is_equal_approx(Color.hex(0xd0d4daff)): cone = m
+	assert_true(cone != null, "cone mesh found")
+	if cone != null:
+		var arrays := cone.mesh.surface_get_arrays(0)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+		var count := indices.size() if indices.size() > 0 else verts.size()
+		assert_true(count >= 12, "at least four side triangles, got %d vertices" % count)
+		for t in range(0, count, 3):
+			var i0 := indices[t] if indices.size() > 0 else t
+			var i1 := indices[t + 1] if indices.size() > 0 else t + 1
+			var i2 := indices[t + 2] if indices.size() > 0 else t + 2
+			var raw_normal := (verts[i1] - verts[i0]).cross(verts[i2] - verts[i0])
+			if raw_normal.length_squared() < 1e-12: continue
+			var face := raw_normal.normalized()
+			for i in [i0, i1, i2]:
+				# Normals are stored compressed by the engine, so compare by direction.
+				assert_true(absf(normals[i].dot(face)) > 0.999, "normal %d of triangle %d is the face normal" % [i, t / 3])
+	node.free()

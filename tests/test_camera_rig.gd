@@ -16,7 +16,7 @@ func test_ortho_is_default_and_orthogonal_projection() -> void:
 	var cam := rig.current_camera()
 	assert_eq(rig.mode, CameraRig.Mode.ORTHO, "default mode")
 	assert_eq(cam.projection, Camera3D.PROJECTION_ORTHOGONAL, "orthogonal")
-	assert_near(cam.size, 34.0, 0.0001, "ortho size")
+	assert_near(cam.size, 34.0 / 0.88, 0.0001, "ortho size is the frustum 34 divided by the arcade zoom 0.88")
 	assert_true(cam.current, "ortho camera is current")
 	rig.free()
 

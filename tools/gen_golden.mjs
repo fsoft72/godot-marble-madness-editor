@@ -1,6 +1,8 @@
 // Generates golden data for the Godot port from the original Three.js sources.
 // Usage: node tools/gen_golden.mjs
 // Output: tests/golden/surface_y.json as [{block, u, v, y}]
+//         data/level01.json (the Level 1 preset as {version, cols, rows, blocks})
+//         tests/golden/level01_surface.json as {block_count, samples: [{bx, bz, u, v, y}]}
 import { register } from 'node:module';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -33,6 +35,7 @@ register('data:text/javascript,' + encodeURIComponent(HOOK_SOURCE), import.meta.
 
 const geometry = await import(pathToFileURL(path.join(JS_DIR, 'geometry.js')).href);
 const { getBlockSurfaceY } = geometry;
+const { createLevel01Preset } = await import(pathToFileURL(path.join(JS_DIR, 'level01Preset.js')).href);
 
 const SAMPLES = [0, 0.5, 1.5, 2.5, 3];
 const SHAPES = [
@@ -112,3 +115,25 @@ const entries = buildEntries();
 mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(path.join(OUT_DIR, 'surface_y.json'), JSON.stringify(entries, null, 1) + '\n');
 console.log(`Wrote ${entries.length} entries to ${OUT_DIR}/surface_y.json`);
+
+/** Writes data/level01.json and the Level 1 surface golden samples from the JS preset. */
+function writeLevel01() {
+  const preset = createLevel01Preset();
+  const level = { version: 1, cols: preset.cols, rows: preset.rows, blocks: preset.blocks };
+  mkdirSync('data', { recursive: true });
+  writeFileSync('data/level01.json', JSON.stringify(level, null, 1) + '\n');
+  const keys = Object.keys(preset.blocks).sort();
+  const samples = [];
+  keys.forEach((k, i) => {
+    if (i % 3 !== 0) return;
+    const block = preset.blocks[k];
+    for (const [u, v] of [[0, 0], [1.5, 1.5], [3, 0], [0.5, 2.5], [3, 3]]) {
+      samples.push({ bx: block.bx, bz: block.bz, u, v, y: getBlockSurfaceY(block, u, v) });
+    }
+  });
+  const golden = { block_count: keys.length, samples };
+  writeFileSync(path.join(OUT_DIR, 'level01_surface.json'), JSON.stringify(golden, null, 1) + '\n');
+  console.log(`Wrote data/level01.json (${keys.length} blocks) and ${samples.length} Level 1 samples`);
+}
+
+writeLevel01();

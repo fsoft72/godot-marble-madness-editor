@@ -116,6 +116,34 @@ static func _add_mesh(parent: Node3D, mesh: Mesh, mat: Material, pos: Vector3) -
 	return inst
 
 
+## Returns a copy of a mesh with one face normal per triangle (the JS flatShading: true look).
+## The face normal keeps the side of the source normals, so lighting direction is unchanged.
+static func _flat_shaded(source: Mesh) -> ArrayMesh:
+	var arrays := source.surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var src_normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var out_verts := PackedVector3Array()
+	var out_normals := PackedVector3Array()
+	for t in range(0, indices.size(), 3):
+		var tri := [indices[t], indices[t + 1], indices[t + 2]]
+		var raw_normal := (verts[tri[1]] - verts[tri[0]]).cross(verts[tri[2]] - verts[tri[0]])
+		if raw_normal.length_squared() < 1e-12: continue
+		var face := raw_normal.normalized()
+		var smooth: Vector3 = src_normals[tri[0]] + src_normals[tri[1]] + src_normals[tri[2]]
+		if face.dot(smooth) < 0.0: face = -face
+		for i in tri:
+			out_verts.append(verts[i])
+			out_normals.append(face)
+	var out_arrays := []
+	out_arrays.resize(Mesh.ARRAY_MAX)
+	out_arrays[Mesh.ARRAY_VERTEX] = out_verts
+	out_arrays[Mesh.ARRAY_NORMAL] = out_normals
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out_arrays)
+	return mesh
+
+
 ## Adds the four sided pyramid and its flat floor shadow.
 static func _build_cone(root: Node3D, block: Dictionary, rot: float, is_large: bool) -> void:
 	var radius := 1.18 if is_large else 0.72
@@ -131,13 +159,13 @@ static func _build_cone(root: Node3D, block: Dictionary, rot: float, is_large: b
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color.hex(0xd0d4daff)
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = 0.0
-	mesh.bottom_radius = radius
-	mesh.height = height
-	mesh.radial_segments = 4
-	mesh.rings = 1
-	var cone := _add_mesh(root, mesh, mat, Vector3(cu, base_y + height * 0.5, cv))
+	var source := CylinderMesh.new()
+	source.top_radius = 0.0
+	source.bottom_radius = radius
+	source.height = height
+	source.radial_segments = 4
+	source.rings = 1
+	var cone := _add_mesh(root, _flat_shaded(source), mat, Vector3(cu, base_y + height * 0.5, cv))
 	cone.rotation.y = PI / 4.0 + deg_to_rad(rot)
 	if shape == "pit": return
 	_add_cone_shadow(root, Vector3(cu, base_y + 0.02, cv), is_large)

@@ -60,11 +60,9 @@ func test_paint_outside_grid_is_ignored() -> void:
 	await _free_editor(root)
 
 
-## Buttons for later tasks exist and are disabled; the language button is enabled.
-func test_later_task_buttons_disabled() -> void:
+## The language button is enabled.
+func test_language_button_enabled() -> void:
 	var root := await _make_editor()
-	var btn := root.ui.get_button("load_preset")
-	assert_true(btn != null and btn.disabled, "load_preset disabled")
 	assert_true(not root.ui.get_button("lang_toggle_btn").disabled, "language enabled")
 	await _free_editor(root)
 

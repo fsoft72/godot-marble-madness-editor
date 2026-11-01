@@ -7,8 +7,11 @@ extends Node3D
 ## Camera projection modes.
 enum Mode { ORTHO, PERSP }
 
-## Ortho frustum height at reset (js orthoFrustum).
+## Ortho frustum height of the JS camera (js orthoFrustum), before the arcade zoom.
 const ORTHO_SIZE := 34.0
+## Zoom of the arcade view (js setArcadeIsometricView: camera.zoom = 0.88).
+## The visible ortho height is ORTHO_SIZE / ARCADE_ZOOM.
+const ARCADE_ZOOM := 0.88
 ## Smallest and largest ortho frustum height.
 const ORTHO_SIZE_MIN := 4.0
 const ORTHO_SIZE_MAX := 200.0
@@ -46,7 +49,7 @@ var home_focus := Vector3.ZERO
 var _yaw := RESET_YAW
 var _pitch := 0.0
 var _distance := 0.0
-var _ortho_size := ORTHO_SIZE
+var _ortho_size := ORTHO_SIZE / ARCADE_ZOOM
 var _ortho_camera := Camera3D.new()
 var _persp_camera := Camera3D.new()
 
@@ -107,7 +110,7 @@ func reset_arcade_view() -> void:
 	_yaw = RESET_YAW
 	_pitch = atan2(RESET_OFFSET.y, Vector2(RESET_OFFSET.x, RESET_OFFSET.z).length())
 	_distance = RESET_OFFSET.length()
-	_ortho_size = ORTHO_SIZE
+	_ortho_size = ORTHO_SIZE / ARCADE_ZOOM
 	_update_cameras()
 
 
