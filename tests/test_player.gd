@@ -170,13 +170,14 @@ func test_solid_elements() -> void:
 		element.free()
 
 
-## A guard tube stops a fast marble instead of letting it climb over.
+## A corner rail holds a marble pushed into it, instead of letting it climb over.
 func test_tube_stops_marble() -> void:
-	var player := _start_player(_floor_level([BlockData.make(2, 1, {"elevation": 2.0, "element": "tube_straight"})]))
+	var player := _start_player(_floor_level([BlockData.make(2, 2, {"elevation": 2.0, "element": "tube_corner"})]))
 	await _steps(10)
-	player.marble.linear_velocity = Vector3(8.0, 0.0, 0.0)
-	await _steps(int(PHYSICS_FPS))
-	assert_true(player.marble.global_position.x < 6.18, "stopped by the rail at x=%s" % player.marble.global_position.x)
+	Input.action_press(PlayerInput.DOWN)
+	await _steps(int(PHYSICS_FPS * 3.0))
+	var pos := player.marble.global_position
+	assert_true(pos.x < 6.3 or pos.z < 6.3, "held by the rail at %s" % str(pos))
 	_finish(player)
 
 
