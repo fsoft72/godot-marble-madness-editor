@@ -11,12 +11,14 @@ const TESTS_DIR := "res://tests"
 const TEST_PREFIX := "test_"
 const TEST_METHOD_PREFIX := "test_"
 
+var _capture := ErrorCapture.new()
 var _passed := 0
 var _failed := 0
 
 
 ## Entry point: starts the (possibly async) run.
 func _initialize() -> void:
+	OS.add_logger(_capture)
 	_run_all()
 
 
@@ -69,7 +71,10 @@ func _run_method(script: GDScript, path: String, method: String) -> void:
 		print("FAIL %s: does not extend TestCase" % path)
 		return
 	inst.tree = self
+	_capture.take()
 	await inst.call(method)
+	for err in _capture.take():
+		inst.failures.append("runtime error: %s" % err)
 	if inst.failures.is_empty():
 		_passed += 1
 		print("PASS %s::%s" % [path, method])
