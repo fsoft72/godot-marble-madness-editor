@@ -101,3 +101,31 @@ func test_bounds_clear_remove() -> void:
 	level.clear()
 	assert_eq(level.cols, 14, "size kept")
 	assert_eq(level.blocks.size(), 0, "cleared")
+
+
+## Wrong-typed known fields are coerced to typed values and build without engine errors.
+func test_wrong_typed_values_coerced_and_buildable() -> void:
+	var text := '{"cols":4,"rows":4,"blocks":{"1,1":{"bx":1,"bz":1,"isVoid":1,"elevation":null,"slope":"x","tilt":null,"shape":5,"element":null,"decal":[]},"2,2":{"bx":2,"bz":2,"isVoid":0,"elevation":"high","shape":"flat","unknownKey":"kept"}}}'
+	var res := LevelIO.parse(text)
+	assert_true(res.get("ok", false), "parse ok")
+	var level: LevelData = res["level"]
+	var b: Dictionary = level.get_block(1, 1)
+	assert_eq(b["isVoid"], true, "isVoid bool")
+	assert_eq(b["elevation"], 14.0, "elevation default")
+	assert_eq(b["slope"], 0.0, "slope default")
+	assert_eq(b["tilt"], 0.0, "tilt default")
+	assert_eq(b["shape"], "flat", "shape default")
+	assert_eq(b["element"], "none", "element default")
+	assert_eq(b["decal"], "none", "decal default")
+	var c: Dictionary = level.get_block(2, 2)
+	assert_eq(c["isVoid"], false, "isVoid zero")
+	assert_eq(c["elevation"], 14.0, "elevation string")
+	assert_eq(c["unknownKey"], "kept", "unknown key kept")
+	for blk in [b, c]:
+		BlockMeshBuilder.build(blk)
+		var el := ElementBuilder.build(blk)
+		if el != null: el.free()
+	var view := LevelView.new()
+	view.bind(level)
+	view.rebuild_all()
+	view.free()

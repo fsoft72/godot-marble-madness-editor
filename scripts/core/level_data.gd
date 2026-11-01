@@ -107,7 +107,21 @@ static func _normalize_block(k: String, raw: Variant) -> Dictionary:
 	for f in INT_FIELDS:
 		var n: Variant = _as_int(block[f], 0)
 		block[f] = n
+	_coerce_known_types(block)
 	return block
+
+
+## Forces known fields to their expected types, using the defaults for wrong-typed values.
+static func _coerce_known_types(block: Dictionary) -> void:
+	var defaults := BlockData.defaults()
+	var v: Variant = block["isVoid"]
+	if typeof(v) == TYPE_INT or typeof(v) == TYPE_FLOAT: block["isVoid"] = v != 0
+	elif typeof(v) != TYPE_BOOL: block["isVoid"] = defaults["isVoid"]
+	for f in ["elevation", "slope", "tilt"]:
+		var n: Variant = block[f]
+		block[f] = float(n) if typeof(n) == TYPE_INT or typeof(n) == TYPE_FLOAT else defaults[f]
+	for f in ["shape", "element", "decal"]:
+		if typeof(block[f]) != TYPE_STRING: block[f] = defaults[f]
 
 
 ## Parses "bx,bz" into {"bx", "bz"}; returns an empty dictionary if invalid.
