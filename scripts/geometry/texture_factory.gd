@@ -1,0 +1,269 @@
+class_name TextureFactory
+extends RefCounted
+## Procedural textures and materials (port of js/textures.js).
+## Everything is drawn with Image primitives (rects and scanline polygons), no art assets.
+
+const TILE_COUNT := 3
+const BASE_SIZE := 192
+const DECAL_NONE := "none"
+const KNOWN_DECALS: Array[String] = [
+	"arrow_wide_diag", "arrow_wide_ortho", "arrow_long_chevrons",
+	"arrow_shaft_only", "pad_456", "goal_banner",
+]
+
+const STRIPE_W := 96
+const STRIPE_H := 64
+const STRIPE_COUNT := 3
+const SEAM_W := 4
+const RIM_H := 4
+
+const FLAG_W := 64
+const FLAG_H := 48
+const FLAG_COLS := 4
+const FLAG_ROWS := 3
+
+const RED := Color("#cf241c")
+const RED_BRIGHT := Color("#e62e24")
+
+## 5x7 pixel glyphs used for the "GOAL" banner and the pad numbers.
+const GLYPHS := {
+	"G": [".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".###."],
+	"O": [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+	"A": [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+	"L": ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
+	"4": ["..##.", ".#.#.", "#..#.", "#####", "...#.", "...#.", "...#."],
+	"5": ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+	"6": ["..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###."],
+}
+const GLYPH_W := 5
+const GLYPH_H := 7
+
+static var _cache := {}
+
+
+## Drops every cached material (used by tests).
+static func clear_cache() -> void:
+	_cache.clear()
+
+
+## Returns the cached material for a 3x3 block top surface.
+## Vertex colors multiply the texture; unknown decals fall back to "none".
+## decal_rotation is in degrees (multiples of 90).
+static func top_surface_material(decal: String, decal_rotation: int) -> StandardMaterial3D:
+	var decal_name := decal if decal in KNOWN_DECALS else DECAL_NONE
+	var key := "top_%s_%d" % [decal_name, decal_rotation]
+	if _cache.has(key): return _cache[key]
+	var img := Image.create(BASE_SIZE, BASE_SIZE, false, Image.FORMAT_RGBA8)
+	_draw_base_tiles(img)
+	_draw_decal_overlay(img, decal_name, decal_rotation)
+	var mat := _make_material(img, false)
+	mat.vertex_color_use_as_albedo = true
+	_cache[key] = mat
+	return mat
+
+
+## Returns the cliff wall materials: "wall" (yellow, left), "trim" (orange with rim lip)
+## and "wall_right" (crimson, right). Cached.
+static func cliff_materials() -> Dictionary:
+	if _cache.has("cliff_materials"): return _cache["cliff_materials"]
+	var mats := {
+		"wall": _stripe_material(Color("#d8dc24"), Color("#8e9212"), Color("#2e3004"), false),
+		"trim": _stripe_material(Color("#e07018"), Color("#b04e0c"), Color("#381804"), true),
+		"wall_right": _stripe_material(Color("#9e2016"), Color("#56100a"), Color("#240402"), false),
+	}
+	_cache["cliff_materials"] = mats
+	return mats
+
+
+## Returns the cached double sided checkered flag material.
+static func flag_material() -> StandardMaterial3D:
+	if _cache.has("flag_mat"): return _cache["flag_mat"]
+	var img := Image.create(FLAG_W, FLAG_H, false, Image.FORMAT_RGBA8)
+	var cw := FLAG_W / FLAG_COLS
+	var ch := FLAG_H / FLAG_ROWS
+	for r in FLAG_ROWS:
+		for c in FLAG_COLS:
+			var col := Color("#f59f18") if (r + c) % 2 == 0 else Color("#181818")
+			_fill_rect(img, c * cw, r * ch, cw, ch, col)
+	var mat := _make_material(img, false)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_cache["flag_mat"] = mat
+	return mat
+
+
+## Builds an unlit, nearest filtered material from an image.
+static func _make_material(img: Image, repeat: bool) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_texture = ImageTexture.create_from_image(img)
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	mat.texture_repeat = repeat
+	return mat
+
+
+## Builds a repeating vertical stripe material (3 stripes, seam on each, optional top rim).
+static func _stripe_material(light: Color, dark: Color, seam: Color, top_rim: bool) -> StandardMaterial3D:
+	var img := Image.create(STRIPE_W, STRIPE_H, false, Image.FORMAT_RGBA8)
+	var stripe_w := STRIPE_W / STRIPE_COUNT
+	for s in STRIPE_COUNT:
+		var sx := s * stripe_w
+		_fill_rect(img, sx, 0, stripe_w, STRIPE_H, light if s % 2 == 0 else dark)
+		_fill_rect(img, sx + stripe_w - SEAM_W, 0, SEAM_W, STRIPE_H, seam)
+	if top_rim: _fill_rect(img, 0, 0, STRIPE_W, RIM_H, Color("#282010"))
+	return _make_material(img, true)
+
+
+## Draws the 3x3 arcade tile grid (neutral bright base so vertex colors can tint it).
+static func _draw_base_tiles(img: Image) -> void:
+	var tile := BASE_SIZE / TILE_COUNT
+	_fill_rect(img, 0, 0, BASE_SIZE, BASE_SIZE, Color("#f2f2f2"))
+	for r in TILE_COUNT:
+		for c in TILE_COUNT:
+			var x := c * tile
+			var y := r * tile
+			_fill_rect(img, x + 2, y + 2, tile - 4, tile - 4, Color("#f6f6f6") if (r + c) % 2 == 0 else Color("#eeeeee"))
+			var py := 6
+			while py < tile - 6:
+				var px := 6
+				while px < tile - 6:
+					if (px + py) % 16 == 0: _fill_rect(img, x + px, y + py, 2, 2, Color.WHITE)
+					px += 8
+				py += 8
+			_fill_rect(img, x + 2, y + 2, tile - 4, 2, Color.WHITE)
+			_fill_rect(img, x + 2, y + 2, 2, tile - 4, Color.WHITE)
+			_fill_rect(img, x + 2, y + tile - 4, tile - 4, 2, Color("#cccccc"))
+			_fill_rect(img, x + tile - 4, y + 2, 2, tile - 4, Color("#cccccc"))
+			_stroke_rect(img, x, y, tile, tile, 3, Color("#484848"))
+
+
+## Draws a decal on a transparent layer, rotates it counter-clockwise by decal_rotation
+## degrees (like the JS canvas rotate(-angle)) and blends it over the base image.
+static func _draw_decal_overlay(img: Image, decal: String, decal_rotation: int) -> void:
+	if decal == DECAL_NONE: return
+	var layer := Image.create(BASE_SIZE, BASE_SIZE, false, Image.FORMAT_RGBA8)
+	_draw_decal(layer, decal)
+	var quarter_turns := posmod(roundi(decal_rotation / 90.0), 4)
+	if quarter_turns == 1: layer.rotate_90(COUNTERCLOCKWISE)
+	elif quarter_turns == 2: layer.rotate_180()
+	elif quarter_turns == 3: layer.rotate_90(CLOCKWISE)
+	img.blend_rect(layer, Rect2i(0, 0, BASE_SIZE, BASE_SIZE), Vector2i.ZERO)
+
+
+## Draws one unrotated decal onto a transparent layer.
+static func _draw_decal(layer: Image, decal: String) -> void:
+	var size := BASE_SIZE
+	var cx := size / 2
+	match decal:
+		"arrow_wide_diag":
+			# Arrow pointing down in local space, rotated -45 degrees around the center.
+			var angle := -PI / 4.0
+			var c := Vector2(cx, cx)
+			_fill_rect_xf(layer, Rect2(-15, -80, 30, 8), c, angle, RED)
+			_fill_rect_xf(layer, Rect2(-19, -65, 38, 10), c, angle, RED)
+			_fill_rect_xf(layer, Rect2(-22, -48, 44, 58), c, angle, RED)
+			_fill_poly(layer, _xf([Vector2(-52, 8), Vector2(52, 8), Vector2(0, 74)], c, angle), RED)
+		"arrow_wide_ortho":
+			_fill_rect(layer, cx - 15, 14, 30, 9, RED)
+			_fill_rect(layer, cx - 19, 29, 38, 11, RED)
+			_fill_rect(layer, cx - 22, 46, 44, 64, RED)
+			_fill_poly(layer, [Vector2(cx - 52, 108), Vector2(cx + 52, 108), Vector2(cx, 176)], RED)
+		"arrow_long_chevrons":
+			_fill_rect(layer, cx - 11, 0, 22, 82, RED)
+			_fill_poly(layer, [Vector2(cx - 30, 78), Vector2(cx + 30, 78), Vector2(cx, 114)], RED)
+			_chevron(layer, cx, 122, 18, 16)
+			_chevron(layer, cx, 144, 15, 15)
+			_chevron(layer, cx, 165, 12, 14)
+		"arrow_shaft_only":
+			_fill_rect(layer, cx - 11, 0, 22, size, RED)
+		"goal_banner":
+			_fill_rect(layer, 4, 34, size - 8, 10, Color("#555555"))
+			_fill_rect(layer, 4, size - 44, size - 8, 10, Color("#555555"))
+			_draw_text(layer, "GOAL", Vector2(cx, cx + 2), 6, 6, Color("#363636"))
+		"pad_456":
+			_draw_pad_456(layer)
+
+
+## Draws a downward pointing triangle (chevron) centered on cx.
+static func _chevron(layer: Image, cx: int, top: int, half_w: int, h: int) -> void:
+	_fill_poly(layer, [Vector2(cx - half_w, top), Vector2(cx + half_w, top), Vector2(cx, top + h)], RED)
+
+
+## Draws the 3x2 red numbered tiles plus the arrow below them.
+static func _draw_pad_456(layer: Image) -> void:
+	var t := BASE_SIZE / TILE_COUNT
+	var labels := [[0, 0, "4"], [1, 0, "5"], [0, 1, "5"], [1, 1, "6"], [2, 0, "4"], [2, 1, "6"]]
+	for item in labels:
+		var x: int = item[0] * t
+		var y: int = item[1] * t
+		_fill_rect(layer, x + 3, y + 3, t - 6, t - 6, RED_BRIGHT)
+		_stroke_rect(layer, x + 5, y + 5, t - 10, t - 10, 2, Color("#ffece8"))
+		_draw_text(layer, item[2], Vector2(x + t / 2.0, y + t / 2.0 + 1), 3, 0, Color.WHITE)
+	var mid := t * 1.5
+	_fill_rect(layer, int(mid - 8), t * 2 + 2, 16, 28, RED_BRIGHT)
+	_fill_poly(layer, [Vector2(mid - 24, t * 2 + 26), Vector2(mid + 24, t * 2 + 26), Vector2(mid, BASE_SIZE - 6)], RED_BRIGHT)
+
+
+## Draws text from the 5x7 glyph table, centered on `center`. scale is pixels per glyph pixel.
+static func _draw_text(img: Image, text: String, center: Vector2, scale: int, gap: int, col: Color) -> void:
+	var count := text.length()
+	var total_w := count * GLYPH_W * scale + (count - 1) * gap
+	var x0 := int(center.x - total_w / 2.0)
+	var y0 := int(center.y - GLYPH_H * scale / 2.0)
+	for i in count:
+		var rows: Array = GLYPHS[text[i]]
+		var gx := x0 + i * (GLYPH_W * scale + gap)
+		for gy in GLYPH_H:
+			for px in GLYPH_W:
+				if rows[gy][px] == "#": _fill_rect(img, gx + px * scale, y0 + gy * scale, scale, scale, col)
+
+
+## Fills an axis aligned rect (clipped to the image, no blending).
+static func _fill_rect(img: Image, x: int, y: int, w: int, h: int, col: Color) -> void:
+	var clipped := Rect2i(x, y, w, h).intersection(Rect2i(0, 0, img.get_width(), img.get_height()))
+	if clipped.size.x <= 0 or clipped.size.y <= 0: return
+	img.fill_rect(clipped, col)
+
+
+## Draws a hollow rect border of the given thickness inside (x, y, w, h).
+static func _stroke_rect(img: Image, x: int, y: int, w: int, h: int, thick: int, col: Color) -> void:
+	_fill_rect(img, x, y, w, thick, col)
+	_fill_rect(img, x, y + h - thick, w, thick, col)
+	_fill_rect(img, x, y, thick, h, col)
+	_fill_rect(img, x + w - thick, y, thick, h, col)
+
+
+## Rotates points around `center` by `angle` radians (canvas convention, y down).
+static func _xf(points: Array, center: Vector2, angle: float) -> Array:
+	var out: Array = []
+	for p in points: out.append(center + (p as Vector2).rotated(angle))
+	return out
+
+
+## Fills a rect given in local space, rotated around `center`.
+static func _fill_rect_xf(img: Image, r: Rect2, center: Vector2, angle: float, col: Color) -> void:
+	var corners := [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]
+	_fill_poly(img, _xf(corners, center, angle), col)
+
+
+## Fills a polygon with an even-odd scanline sampled at pixel centers.
+static func _fill_poly(img: Image, points: Array, col: Color) -> void:
+	var n := points.size()
+	if n < 3: return
+	var min_y := INF
+	var max_y := -INF
+	for p in points:
+		min_y = minf(min_y, p.y)
+		max_y = maxf(max_y, p.y)
+	for y in range(maxi(0, floori(min_y)), mini(img.get_height(), ceili(max_y) + 1)):
+		var sy := y + 0.5
+		var xs: Array[float] = []
+		for i in n:
+			var a: Vector2 = points[i]
+			var b: Vector2 = points[(i + 1) % n]
+			if (a.y <= sy) == (b.y <= sy): continue
+			xs.append(a.x + (sy - a.y) / (b.y - a.y) * (b.x - a.x))
+		xs.sort()
+		for k in range(0, xs.size() - 1, 2):
+			var x_from := maxi(0, ceili(xs[k] - 0.5))
+			var x_to := mini(img.get_width(), ceili(xs[k + 1] - 0.5))
+			if x_to > x_from: img.fill_rect(Rect2i(x_from, y, x_to - x_from, 1), col)
