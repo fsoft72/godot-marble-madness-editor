@@ -68,6 +68,8 @@ var _select_cursor := MeshInstance3D.new()
 var _hover_cell := EditorState.NO_CELL
 ## True while a left drag started on the 3D view.
 var _stroke_active := false
+## True once the current stroke has pushed its undo snapshot.
+var _stroke_has_snapshot := false
 ## Last cell painted by the current stroke.
 var _stroke_cell := EditorState.NO_CELL
 ## Grid size the camera is centered on.
@@ -92,7 +94,7 @@ func _ready() -> void:
 	ui.bind(state, level, history)
 	_connect_ui()
 	state.selection_changed.connect(func(_cell: Vector2i) -> void: _after_edit())
-	state.tool_changed.connect(func(_tool: int) -> void: ui.refresh())
+	state.tool_changed.connect(func(_tool: int) -> void: _end_stroke(); ui.refresh())
 	state.brush_changed.connect(func() -> void: ui.refresh())
 
 
@@ -142,12 +144,14 @@ func center_camera(reset_view: bool = false) -> void:
 
 ## Undoes the last step and rebuilds the view.
 func undo() -> void:
+	_end_stroke()
 	if not history.undo(level): return
 	_after_history_change()
 
 
 ## Redoes the last undone step and rebuilds the view.
 func redo() -> void:
+	_end_stroke()
 	if not history.redo(level): return
 	_after_history_change()
 
@@ -204,16 +208,22 @@ func apply_palette_pick(kind: String, id: String) -> void:
 
 
 ## Handles a click on the active palette item: rotates its brush rotation by 90 degrees.
-## A selected block follows (one snapshot); otherwise the matching paint tool is selected.
+## In Select mode a selected block follows (one snapshot); otherwise only the brush and tool change.
 func _rotate_active_item(kind: String) -> void:
 	var prop: String = ROTATION_PROPS[kind]
-	if not (state.tool == EditorState.Tool.SELECT and _selection_valid()):
-		state.tool = PALETTE_TOOLS[kind]
-	apply_inspector_value(prop, (int(state.brush[prop]) + Tools.ROTATE_STEP) % 360)
+	var next := (int(state.brush[prop]) + Tools.ROTATE_STEP) % 360
+	if state.tool == EditorState.Tool.SELECT and _selection_valid():
+		apply_inspector_value(prop, next)
+		return
+	state.brush[prop] = next
+	state.tool = PALETTE_TOOLS[kind]
+	state.brush_changed.emit()
+	_after_edit()
 
 
 ## Starts a stroke with a left click on the 3D view.
 func _handle_mouse_button(event: InputEventMouseButton) -> void:
+	if event.pressed and not _pointer_over_ui(): _release_text_focus()
 	if event.button_index != MOUSE_BUTTON_LEFT: return
 	if not event.pressed:
 		_end_stroke()
@@ -223,6 +233,7 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 	if cell == EditorState.NO_CELL: return
 	_stroke_active = true
 	_stroke_cell = cell
+	_stroke_has_snapshot = _will_push_snapshot(cell)
 	paint_cell(cell)
 
 
@@ -237,7 +248,9 @@ func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
 	if not (event.button_mask & MOUSE_BUTTON_MASK_LEFT): return
 	if state.tool != EditorState.Tool.PAINT_BLOCK and state.tool != EditorState.Tool.ERASE: return
 	_stroke_cell = cell
-	Tools.apply(state, level, history, view, cell, true)
+	var pushes := _will_push_snapshot(cell)
+	Tools.apply(state, level, history, view, cell, _stroke_has_snapshot)
+	_stroke_has_snapshot = _stroke_has_snapshot or pushes
 	_after_edit()
 
 
@@ -250,7 +263,20 @@ func _handle_ctrl_key(event: InputEventKey) -> void:
 ## Ends the current paint stroke.
 func _end_stroke() -> void:
 	_stroke_active = false
+	_stroke_has_snapshot = false
 	_stroke_cell = EditorState.NO_CELL
+
+
+## Returns true when applying the active tool without drag would push an undo snapshot.
+func _will_push_snapshot(cell: Vector2i) -> bool:
+	if state.tool == EditorState.Tool.PAINT_BLOCK: return true
+	return state.tool == EditorState.Tool.ERASE and not level.get_block(cell.x, cell.y).is_empty()
+
+
+## Drops the keyboard focus of a text field so shortcuts work after a click on the 3D view.
+func _release_text_focus() -> void:
+	var owner := get_viewport().gui_get_focus_owner()
+	if owner != null: owner.release_focus()
 
 
 ## Returns true when the mouse is over an interface control.
@@ -284,6 +310,7 @@ func _after_edit() -> void:
 ## Rebuilds the view after undo or redo and recenters only if the level size changed.
 func _after_history_change() -> void:
 	view.rebuild_all()
+	Tools.sync_brush_from_selection(state, level)
 	if _centered_size != Vector2i(level.cols, level.rows): center_camera(false)
 	_after_edit()
 

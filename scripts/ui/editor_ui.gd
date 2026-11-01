@@ -178,8 +178,10 @@ var _title_label: Label
 var _coords_label: Label
 ## True while refresh writes values, so widgets do not emit change signals.
 var _syncing := false
-## True while a slider is being dragged; the value is committed on drag end.
-var _dragging := false
+## True while a mouse button is held: slider and spin box changes are committed on release.
+var _mouse_down := false
+## Sub-height edits made during the current mouse press, as [row, col] -> value.
+var _pending_subtiles: Dictionary = {}
 
 
 ## Builds the whole interface. Call once, then bind.
@@ -190,6 +192,16 @@ func _init() -> void:
 	theme = _build_theme()
 	_build_layout()
 	_apply_texts()
+
+
+## Tracks the mouse button state and commits held spin box edits on release.
+func _input(event: InputEvent) -> void:
+	if not (event is InputEventMouseButton): return
+	_mouse_down = event.pressed
+	if event.pressed: return
+	var pending := _pending_subtiles
+	_pending_subtiles = {}
+	for cell in pending: subtile_changed.emit(cell[0], cell[1], pending[cell])
 
 
 ## Connects the UI to the editor state and refreshes every widget.
@@ -203,6 +215,16 @@ func bind(state: EditorState, level: LevelData, history: History) -> void:
 ## Returns the button registered under a text key, or null.
 func get_button(key: String) -> Button:
 	return _buttons.get(key)
+
+
+## Returns the inspector slider of a block property.
+func get_slider(prop: String) -> HSlider:
+	return _sliders[prop]
+
+
+## Returns the sub-height field at a row-major index.
+func get_subtile_field(index: int) -> SpinBox:
+	return _subtile_fields[index]
 
 
 ## Updates every widget from the state, the selected block and the history.
@@ -463,7 +485,7 @@ func _build_slider_row(entry: Array) -> Control:
 	slider.step = entry[4]
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	slider.drag_started.connect(func() -> void: _dragging = true)
+	slider.scrollable = false
 	slider.drag_ended.connect(func(changed: bool) -> void: _on_slider_drag_ended(prop, slider, changed))
 	slider.value_changed.connect(func(value: float) -> void: _on_slider_value_changed(prop, value))
 	for sign_value in [-1.0, 1.0]:
@@ -522,13 +544,12 @@ func _build_subtile_grid() -> Control:
 ## Updates the value label while the slider moves and commits keyboard changes.
 func _on_slider_value_changed(prop: String, value: float) -> void:
 	_slider_labels[prop].text = "%.1f" % value
-	if _syncing or _dragging: return
+	if _syncing or _mouse_down: return
 	inspector_changed.emit(prop, value)
 
 
 ## Commits a slider drag once, when the mouse is released.
 func _on_slider_drag_ended(prop: String, slider: HSlider, changed: bool) -> void:
-	_dragging = false
 	if not changed: return
 	inspector_changed.emit(prop, slider.value)
 
@@ -543,6 +564,9 @@ func _on_step_pressed(prop: String, delta: float) -> void:
 ## Commits a sub-height field edit.
 func _on_subtile_changed(row: int, col: int, value: float) -> void:
 	if _syncing: return
+	if _mouse_down:
+		_pending_subtiles[[row, col]] = value
+		return
 	subtile_changed.emit(row, col, value)
 
 

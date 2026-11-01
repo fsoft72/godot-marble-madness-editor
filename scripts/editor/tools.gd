@@ -66,6 +66,14 @@ static func adjust_selected(tool_state: EditorState, level: LevelData, history: 
 	view.rebuild_block(cell.x, cell.y)
 
 
+## Copies the selected block into the brush, like syncInspectorFromSelection in the JS.
+## Does nothing without a valid selection, or when the selected block is empty or void.
+static func sync_brush_from_selection(tool_state: EditorState, level: LevelData) -> void:
+	var cell := tool_state.selected
+	if cell == EditorState.NO_CELL or not level.in_bounds(cell.x, cell.y): return
+	_sync_brush(tool_state, level.get_block(cell.x, cell.y))
+
+
 ## Returns the block property changed by a key action, or "" for an unknown action.
 static func _action_prop(action: String) -> String:
 	match action:
