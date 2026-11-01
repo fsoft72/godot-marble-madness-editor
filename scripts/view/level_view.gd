@@ -5,6 +5,7 @@ extends Node3D
 
 const NODE_PREFIX := "Block_"
 const BODY_NAME := "Body"
+const ELEMENT_BODY_NAME := "ElementBody"
 const ELEMENT_NAME := "Element"
 const MESH_NAME := "Mesh"
 ## Rays with a vertical component below this are treated as parallel to the ground.
@@ -13,6 +14,8 @@ const NO_CELL := Vector2i(-1, -1)
 
 ## The level being displayed.
 var level: LevelData
+## True to also build colliders for solid elements (tubes and cones). The editor does not need them.
+var solid_elements := false
 ## Cached collision faces per block key, local to the block.
 var _faces: Dictionary = {}
 ## Cached local bounding box per block key.
@@ -60,6 +63,7 @@ func rebuild_block(bx: int, bz: int) -> void:
 		_bounds[k] = _faces_bounds(faces)
 	element.name = ELEMENT_NAME
 	node.add_child(element)
+	if solid_elements: _add_static_body(node, ELEMENT_BODY_NAME, ElementBuilder.collision_faces(element, block))
 	add_child(node)
 
 
@@ -109,12 +113,18 @@ func _add_geometry(node: Node3D, block: Dictionary, faces: PackedVector3Array) -
 	mesh_instance.name = MESH_NAME
 	mesh_instance.mesh = BlockMeshBuilder.build(block)
 	node.add_child(mesh_instance)
+	_add_static_body(node, BODY_NAME, faces)
+
+
+## Adds a static body with a concave shape built from faces; does nothing without faces.
+func _add_static_body(node: Node3D, body_name: String, faces: PackedVector3Array) -> void:
+	if faces.is_empty(): return
 	var shape := ConcavePolygonShape3D.new()
 	shape.set_faces(faces)
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
 	var body := StaticBody3D.new()
-	body.name = BODY_NAME
+	body.name = body_name
 	body.add_child(collision)
 	node.add_child(body)
 

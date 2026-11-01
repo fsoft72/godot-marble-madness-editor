@@ -71,7 +71,7 @@ The source is the reference for behavior and look: `index.html`, `css/style.css`
 
 ## Assistant's calls (not discussed with the owner, please check)
 
-- **Platform:** Linux/Windows/macOS desktop. JSON import and export use native `FileDialog`. No web export in scope.
+- **Platform:** Linux/Windows/macOS desktop. JSON import and export use native `FileDialog`. Superseded for the player: the owner asked for a standalone web build without the editor (see `CHANGES.md`).
 - **JSON compatibility:** the loader is tolerant (missing fields get the defaults used by the source `setBlock`, unknown keys are ignored).
   Round trip must be semantic, not byte-identical. The web format is defined by the source code; the builder derives it from `js/main.js`.
 - **Grid size:** square, fixed per level, read from the JSON. The source `state` says 13x13 and the Level 1 preset says 14x14, so the default for a new map is the preset's 14x14.

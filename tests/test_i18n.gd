@@ -1,7 +1,7 @@
 extends TestCase
 ## Tests for the EN/IT translation table and its use by the editor UI.
 
-const UI_SOURCES: Array[String] = ["res://scripts/ui/editor_ui.gd", "res://scripts/editor/editor_root.gd"]
+const UI_SOURCES: Array[String] = ["res://scripts/ui/editor_ui.gd", "res://scripts/editor/editor_root.gd", "res://scripts/game/player_root.gd", "res://scripts/game/player_hud.gd"]
 const SCENE_PATH := "res://scenes/editor.tscn"
 
 

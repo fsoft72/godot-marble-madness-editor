@@ -25,6 +25,8 @@ signal grid_toggle_requested
 signal clear_requested
 ## Emitted when the Level 1 button is pressed.
 signal load_level01_requested
+## Emitted when the Play button is pressed.
+signal play_requested
 ## Emitted when a file is chosen in the open dialog.
 signal open_path_chosen(path: String)
 ## Emitted when a file is chosen in the save dialog.
@@ -380,8 +382,9 @@ func _build_top_bar() -> Control:
 	redo.pressed.connect(func() -> void: redo_requested.emit())
 	flow.add_child(redo)
 	flow.add_child(VSeparator.new())
-	for key in ["load_preset", "clear_map", "open_json", "save_json", "lang_toggle_btn"]:
+	for key in ["play_level", "load_preset", "clear_map", "open_json", "save_json", "lang_toggle_btn"]:
 		flow.add_child(_make_button(key))
+	_buttons["play_level"].pressed.connect(func() -> void: play_requested.emit())
 	_buttons["clear_map"].pressed.connect(func() -> void: clear_requested.emit())
 	_buttons["open_json"].pressed.connect(func() -> void: open_dialog.popup_centered_ratio(0.6))
 	_buttons["save_json"].pressed.connect(func() -> void: save_dialog.popup_centered_ratio(0.6))

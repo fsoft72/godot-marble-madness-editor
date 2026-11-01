@@ -12,6 +12,13 @@ const POLE_HEIGHT := 1.95
 const FLAG_WIDTH := 0.92
 const FLAG_HEIGHT := 0.65
 const ROUND_SEGMENTS := 12
+## Opacity of the marble in play: the editor glass is too pale to follow on the gray floor.
+const ROLLING_MARBLE_ALPHA := 0.85
+## Height of the invisible copy of a tube collider that stops the marble climbing over the rail.
+const TUBE_COLLISION_LIFT := 0.5
+const CONE_NAME := "Cone"
+const TUBE_ELEMENTS: Array[String] = ["tube_straight", "tube_corner", "tube_u"]
+const CONE_ELEMENTS: Array[String] = ["cone_small", "cone_large"]
 
 
 ## Returns a Node3D holding the element of the block (empty for none or unknown ids).
@@ -29,6 +36,52 @@ static func build(block: Dictionary) -> Node3D:
 		"goal_flags": _build_flags(root, block, rot)
 		"marble_start": _build_marble(root, block, rot)
 	return root
+
+
+## Returns collision triangles of the solid parts of a built element, from its visible meshes:
+## every tube mesh and the cone pyramid. Flags, marble and floor shadows are not solid.
+## Tubes also get a raised copy: the visible rail is lower than the marble could climb over.
+static func collision_faces(element: Node3D, block: Dictionary) -> PackedVector3Array:
+	var faces := PackedVector3Array()
+	var type := str(block.get("element", "none"))
+	if type in TUBE_ELEMENTS:
+		_gather_faces(element, Transform3D.IDENTITY, faces)
+		var rail_top := faces.duplicate()
+		for p in rail_top: faces.append(p + Vector3.UP * TUBE_COLLISION_LIFT)
+	elif type in CONE_ELEMENTS:
+		var cone := element.get_node_or_null(CONE_NAME) as MeshInstance3D
+		if cone != null: _append_mesh_faces(cone, cone.transform, faces)
+	return faces
+
+
+## Returns a new marble visual centered on its origin, without its floor shadow.
+static func make_rolling_marble(color_value: Variant) -> Node3D:
+	var root := Node3D.new()
+	_build_marble(root, {"marbleColor": color_value}, 0.0)
+	var marble := root.get_child(0) as Node3D
+	root.remove_child(marble)
+	root.free()
+	marble.position = Vector3.ZERO
+	var shadow := marble.get_node("MarbleShadow")
+	marble.remove_child(shadow)
+	shadow.free()
+	var sphere := marble.get_node("MarbleSphere") as MeshInstance3D
+	var glass := sphere.material_override as StandardMaterial3D
+	glass.albedo_color.a = ROLLING_MARBLE_ALPHA
+	return marble
+
+
+## Appends the faces of every mesh below a node, walking down the accumulated transform.
+static func _gather_faces(node: Node, xform: Transform3D, faces: PackedVector3Array) -> void:
+	for child in node.get_children():
+		var child_xform := xform * (child as Node3D).transform
+		if child is MeshInstance3D: _append_mesh_faces(child, child_xform, faces)
+		_gather_faces(child, child_xform, faces)
+
+
+## Appends the triangles of one mesh instance after applying a transform.
+static func _append_mesh_faces(inst: MeshInstance3D, xform: Transform3D, faces: PackedVector3Array) -> void:
+	for p in inst.mesh.get_faces(): faces.append(xform * p)
 
 
 ## Rotates an element point (u, v) by the element rotation.
@@ -166,6 +219,7 @@ static func _build_cone(root: Node3D, block: Dictionary, rot: float, is_large: b
 	source.radial_segments = 4
 	source.rings = 1
 	var cone := _add_mesh(root, _flat_shaded(source), mat, Vector3(cu, base_y + height * 0.5, cv))
+	cone.name = CONE_NAME
 	cone.rotation.y = PI / 4.0 + deg_to_rad(rot)
 	if shape == "pit": return
 	_add_cone_shadow(root, Vector3(cu, base_y + 0.02, cv), is_large)

@@ -9,16 +9,6 @@ const HOVER_COLOR := Color(1.0, 1.0, 1.0, 0.28)
 const SELECT_COLOR := Color(0.93, 0.8, 0.41, 0.45)
 ## Bundled Level 1 preset.
 const LEVEL01_PATH := "res://data/level01.json"
-## Sun and ambient settings from js/main.js.
-const AMBIENT_ENERGY := 0.72
-const SUN_COLOR := Color("fffaf0")
-const SUN_ENERGY := 1.15
-const SUN_POSITION := Vector3(-22.0, 48.0, 12.0)
-const FILL_COLOR := Color("90a8ff")
-const FILL_ENERGY := 0.25
-const FILL_POSITION := Vector3(25.0, 20.0, -20.0)
-## Shadow range of the sun.
-const SHADOW_DISTANCE := 160.0
 ## Block properties whose edit invalidates the corner offsets of a block.
 const SHAPE_PROPS: Array[String] = ["slope", "tilt", "rotation"]
 ## Block properties stored as integers.
@@ -31,6 +21,8 @@ const PALETTE_TOOLS := {
 }
 ## Rotation property rotated by a second palette click, per brush key.
 const ROTATION_PROPS := {"shape": "rotation", "element": "elemRotation", "decal": "decalRotation"}
+## Key that plays the current level.
+const PLAY_KEY := KEY_P
 ## Tool for each number key.
 const TOOL_KEYS := {
 	KEY_1: EditorState.Tool.SELECT,
@@ -78,11 +70,13 @@ var _stroke_has_snapshot := false
 var _stroke_cell := EditorState.NO_CELL
 ## Grid size the camera is centered on.
 var _centered_size := Vector2i.ZERO
+## Node that holds the editor; set only while the player runs in its place.
+var _play_parent: Node = null
 
 
 ## Builds the scene: lights, background, view, camera, cursors and UI.
 func _ready() -> void:
-	_build_environment()
+	LevelEnvironment.add_to(self)
 	view.name = "LevelView"
 	add_child(view)
 	view.bind(level)
@@ -125,12 +119,46 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		_handle_ctrl_key(event)
 		return
 	if event.alt_pressed: return
+	if event.keycode == PLAY_KEY:
+		start_play()
+		return
 	if TOOL_KEYS.has(event.keycode):
 		state.tool = TOOL_KEYS[event.keycode]
 		return
 	if not ADJUST_KEYS.has(event.keycode): return
 	Tools.adjust_selected(state, level, history, view, ADJUST_KEYS[event.keycode])
 	_after_edit()
+
+
+## Replaces the editor with a player of a copy of the current level.
+## The editor leaves the tree but stays alive, so level, undo history and camera survive.
+## Returns the player, or null when already playing.
+func start_play() -> PlayerRoot:
+	if _play_parent != null or not is_inside_tree(): return null
+	_end_stroke()
+	var copy := LevelData.new()
+	copy.copy_from(level)
+	var player := PlayerRoot.new()
+	player.setup(copy, true)
+	player.exit_requested.connect(_stop_play.bind(player))
+	var tree := get_tree()
+	_play_parent = get_parent()
+	_play_parent.remove_child(self)
+	_play_parent.add_child(player)
+	tree.current_scene = player
+	return player
+
+
+## Removes the player and puts the editor back in the tree.
+func _stop_play(player: PlayerRoot) -> void:
+	var parent := _play_parent
+	_play_parent = null
+	var tree := player.get_tree()
+	parent.remove_child(player)
+	player.queue_free()
+	parent.add_child(self)
+	tree.current_scene = self
+	rig.set_mode(rig.mode)
 
 
 ## Applies the active tool to a cell as a click (no drag).
@@ -411,38 +439,9 @@ func _connect_ui() -> void:
 	ui.grid_toggle_requested.connect(toggle_grid)
 	ui.clear_requested.connect(clear_level)
 	ui.load_level01_requested.connect(load_level01)
+	ui.play_requested.connect(func() -> void: start_play())
 	ui.open_path_chosen.connect(func(path: String) -> void: load_level_from_file(path))
 	ui.save_path_chosen.connect(func(path: String) -> void: save_level_to_file(path))
-
-
-## Adds black background, ambient light, the sun with shadows and the blue fill light.
-func _build_environment() -> void:
-	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color.BLACK
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color.WHITE
-	env.ambient_light_energy = AMBIENT_ENERGY
-	var world_env := WorldEnvironment.new()
-	world_env.name = "WorldEnvironment"
-	world_env.environment = env
-	add_child(world_env)
-	var sun := _make_light("Sun", SUN_COLOR, SUN_ENERGY, SUN_POSITION)
-	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = SHADOW_DISTANCE
-	sun.shadow_bias = 0.05
-	add_child(sun)
-	add_child(_make_light("Fill", FILL_COLOR, FILL_ENERGY, FILL_POSITION))
-
-
-## Creates a directional light that shines from a position toward the origin.
-func _make_light(light_name: String, color: Color, energy: float, from: Vector3) -> DirectionalLight3D:
-	var light := DirectionalLight3D.new()
-	light.name = light_name
-	light.light_color = color
-	light.light_energy = energy
-	light.transform = Transform3D(Basis.looking_at(-from, Vector3.UP), from)
-	return light
 
 
 ## Prepares a flat translucent cursor quad the size of one cell.
