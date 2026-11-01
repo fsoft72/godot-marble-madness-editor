@@ -35,38 +35,55 @@ static func apply(tool_state: EditorState, level: LevelData, history: History, v
 			_sync_brush(tool_state, block)
 
 
-## Applies a key action to the selected block: height_up, height_down, slope_up, slope_down,
-## tilt_up, tilt_down, rotate or delete. No-op without a valid selection on an existing block.
+## Applies a key action: height_up, height_down, slope_up, slope_down, tilt_up, tilt_down, rotate
+## or delete. Like the JS, the new value starts from the brush (which mirrors the selected block),
+## the brush always follows, and an empty selected cell gets a block created from the brush.
+## Without a valid selection only the brush changes. A snapshot is pushed only when the level changes.
 static func adjust_selected(tool_state: EditorState, level: LevelData, history: History, view: LevelView, action: String) -> void:
 	var cell := tool_state.selected
-	if cell == EditorState.NO_CELL or not level.in_bounds(cell.x, cell.y): return
-	var block := level.get_block(cell.x, cell.y)
-	if block.is_empty(): return
+	var valid := cell != EditorState.NO_CELL and level.in_bounds(cell.x, cell.y)
+	var block := level.get_block(cell.x, cell.y) if valid else {}
 	if action == "delete":
+		if block.is_empty(): return
 		history.push(level)
 		level.remove_block(cell.x, cell.y)
 		view.rebuild_block(cell.x, cell.y)
 		return
-	var prop := ""
-	var value: Variant
-	match action:
-		"height_up": prop = "elevation"; value = _round2(float(block.get("elevation", tool_state.brush["elevation"])) + HEIGHT_STEP)
-		"height_down": prop = "elevation"; value = _round2(float(block.get("elevation", tool_state.brush["elevation"])) - HEIGHT_STEP)
-		"slope_up": prop = "slope"; value = _round2(float(block.get("slope", 0.0)) + SLOPE_TILT_STEP)
-		"slope_down": prop = "slope"; value = _round2(float(block.get("slope", 0.0)) - SLOPE_TILT_STEP)
-		"tilt_up": prop = "tilt"; value = _round2(float(block.get("tilt", 0.0)) + SLOPE_TILT_STEP)
-		"tilt_down": prop = "tilt"; value = _round2(float(block.get("tilt", 0.0)) - SLOPE_TILT_STEP)
-		"rotate": prop = "rotation"; value = (int(block.get("rotation", 0)) + ROTATE_STEP) % 360
+	var prop := _action_prop(action)
 	if prop == "": return
+	var base: Variant = block[prop] if block.has(prop) else tool_state.brush[prop]
+	var value: Variant = _action_value(action, base)
+	tool_state.brush[prop] = value
+	tool_state.brush_changed.emit()
+	if not valid: return
 	history.push(level)
+	if block.is_empty(): block = _ensure_block(tool_state, level, cell)
 	block["isVoid"] = false
 	block[prop] = value
 	if prop != "elevation":
 		block.erase("corners")
 		block.erase("vGrid")
 	view.rebuild_block(cell.x, cell.y)
-	tool_state.brush[prop] = value
-	tool_state.brush_changed.emit()
+
+
+## Returns the block property changed by a key action, or "" for an unknown action.
+static func _action_prop(action: String) -> String:
+	match action:
+		"height_up", "height_down": return "elevation"
+		"slope_up", "slope_down": return "slope"
+		"tilt_up", "tilt_down": return "tilt"
+		"rotate": return "rotation"
+	return ""
+
+
+## Returns the value after applying a key action to the base value.
+static func _action_value(action: String, base: Variant) -> Variant:
+	match action:
+		"height_up": return _round2(float(base) + HEIGHT_STEP)
+		"height_down": return _round2(float(base) - HEIGHT_STEP)
+		"slope_up", "tilt_up": return _round2(float(base) + SLOPE_TILT_STEP)
+		"slope_down", "tilt_down": return _round2(float(base) - SLOPE_TILT_STEP)
+	return (int(base) + ROTATE_STEP) % 360
 
 
 ## Returns the block at the cell, creating it from the brush elevation when absent (ensureBlockAt).

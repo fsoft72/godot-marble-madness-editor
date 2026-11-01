@@ -241,17 +241,58 @@ func test_adjust_drops_corners() -> void:
 	_teardown()
 
 
-## Adjust with no selection, a bad selection, or an empty cell does nothing and pushes nothing.
-func test_adjust_noop_cases() -> void:
+## On a selected empty cell, a key creates the block from the brush like the JS, with one snapshot.
+func test_adjust_on_empty_cell_creates_block() -> void:
 	_setup()
+	_state.selected = Vector2i(5, 5)
 	Tools.adjust_selected(_state, _level, _history, _view, "height_up")
+	var b := _level.get_block(5, 5)
+	assert_near(b.get("elevation", 0.0), 12.5, 0.0001, "brush elevation plus step")
+	assert_eq(b.get("isVoid"), false, "not void")
+	assert_near(_state.brush["elevation"], 12.5, 0.0001, "brush follows")
+	assert_true(_view.block_node(5, 5) != null, "view node")
+	assert_true(_history.undo(_level), "one snapshot")
+	assert_true(not _history.can_undo(), "exactly one")
+	assert_true(_level.blocks.is_empty(), "undo removes block")
+	_teardown()
+
+
+## Without a valid selection, a key only changes the brush: no snapshot, no level change.
+func test_adjust_without_selection_changes_brush_only() -> void:
+	_setup()
+	var fired := [0]
+	_state.brush_changed.connect(func(): fired[0] += 1)
+	Tools.adjust_selected(_state, _level, _history, _view, "height_up")
+	_state.selected = Vector2i(40, 2)
+	Tools.adjust_selected(_state, _level, _history, _view, "rotate")
+	Tools.adjust_selected(_state, _level, _history, _view, "slope_up")
+	assert_near(_state.brush["elevation"], 12.5, 0.0001, "elevation")
+	assert_eq(_state.brush["rotation"], 90, "rotation")
+	assert_eq(_state.brush["slope"], 0.2, "slope")
+	assert_eq(fired[0], 3, "brush_changed emitted")
+	assert_true(not _history.can_undo(), "no snapshot")
+	assert_true(_level.blocks.is_empty(), "level untouched")
+	_teardown()
+
+
+## Delete on an empty cell or without a valid selection does nothing.
+func test_delete_noop_cases() -> void:
+	_setup()
+	Tools.adjust_selected(_state, _level, _history, _view, "delete")
 	_state.selected = Vector2i(40, 2)
 	Tools.adjust_selected(_state, _level, _history, _view, "delete")
 	_state.selected = Vector2i(5, 5)
-	Tools.adjust_selected(_state, _level, _history, _view, "rotate")
 	Tools.adjust_selected(_state, _level, _history, _view, "delete")
 	assert_true(not _history.can_undo(), "no snapshot")
-	assert_true(_level.blocks.is_empty(), "nothing created")
+	_teardown()
+
+
+## An unknown action changes nothing.
+func test_adjust_unknown_action_noop() -> void:
+	_setup()
+	_state.selected = Vector2i(5, 5)
+	Tools.adjust_selected(_state, _level, _history, _view, "bogus")
+	assert_true(not _history.can_undo() and _level.blocks.is_empty(), "nothing")
 	_teardown()
 
 
