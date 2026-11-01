@@ -5,6 +5,7 @@ config_version=5
 
 config/name="Marble Madness Editor"
 config/features=PackedStringArray("4.6")
+run/main_scene="res://scenes/editor.tscn"
 
 [rendering]
 
