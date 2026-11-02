@@ -55,3 +55,14 @@ func test_int_and_float_rotation_agree() -> void:
 ## A block without elevation behaves like the JS (undefined elevation is 0).
 func test_missing_elevation_is_zero() -> void:
 	assert_near(BlockSurface.surface_y({}, 1.0, 1.0), 0.0, GOLDEN_EPS, "empty block")
+
+
+## A "tiles" block uses its own corners per tile, with the main or anti split.
+func test_tiles_surface() -> void:
+	var tiles := [[[0, 1, 0, 1], null, [0, 0, 0, 0]], [null, null, null], [null, null, [2, 2, 2, 2]]]
+	var block := {"elevation": 3.0, "tiles": tiles, "tileSplit": [["main", "main", "main"], ["main", "main", "main"], ["main", "main", "anti"]]}
+	assert_near(BlockSurface.surface_y(block, 0.5, 0.25), 3.5, 0.0001, "ramp along u")
+	assert_near(BlockSurface.surface_y(block, 1.5, 1.5), 3.0, 0.0001, "hole gives the elevation")
+	assert_near(BlockSurface.surface_y(block, 2.5, 2.5), 5.0, 0.0001, "raised tile")
+	assert_eq(BlockSurface.tile_split(block, 2, 2), "anti", "per tile split")
+	assert_true(BlockSurface.tile_corners(tiles, 1, 0).is_empty(), "hole has no corners")

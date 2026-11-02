@@ -73,7 +73,7 @@ func test_tube_corner_first_post_position() -> void:
 	var post := _meshes(node)[0]
 	assert_near(post.position.x, 0.18, 0.0001, "post x")
 	assert_near(post.position.z, 2.85, 0.0001, "post z")
-	assert_near(post.position.y, 2.0 + 0.21, 0.0001, "post y")
+	assert_near(post.position.y, 2.0 + ElementBuilder.POST_HEIGHT / 2.0, 0.0001, "post y")
 	node.free()
 
 
@@ -84,23 +84,33 @@ func test_pit_block_builds_element() -> void:
 	node.free()
 
 
-## Returns the albedo color of the marble glass sphere built with the given marbleColor.
+## Returns the glass tint of the marble sphere built with the given marbleColor.
 func _marble_color(value: Variant) -> Color:
 	var node := _build("marble_start", 0, {"marbleColor": value})
 	var color := Color.BLACK
 	for m in _meshes(node):
-		if m.name == "MarbleSphere": color = (m.material_override as StandardMaterial3D).albedo_color
+		if m.name == "MarbleSphere": color = (m.material_override as ShaderMaterial).get_shader_parameter("tint")
 	node.free()
 	return color
 
 
-## A '#rrggbb' string colors the marble and keeps the glass alpha.
+## A '#rrggbb' string tints the marble glass.
 func test_marble_color_html_string() -> void:
 	var c := _marble_color("#1020ff")
 	assert_near(c.r, 0x10 / 255.0, 0.001, "r")
 	assert_near(c.g, 0x20 / 255.0, 0.001, "g")
 	assert_near(c.b, 1.0, 0.001, "b")
-	assert_near(c.a, 0x85 / 255.0, 0.001, "alpha")
+
+
+## The marble uses the ray traced glass shader with the marble radius.
+func test_marble_uses_ray_traced_glass() -> void:
+	var node := _build("marble_start")
+	for m in _meshes(node):
+		if m.name != "MarbleSphere": continue
+		var mat := m.material_override as ShaderMaterial
+		assert_true(mat != null and mat.shader.resource_path == ElementBuilder.GLASS_SHADER_PATH, "glass shader")
+		assert_near(mat.get_shader_parameter("radius"), ElementBuilder.MARBLE_RADIUS, 0.0001, "radius")
+	node.free()
 
 
 ## An int colors the marble.
@@ -122,8 +132,7 @@ func test_cone_is_flat_shaded() -> void:
 	var node := _build("cone_small")
 	var cone: MeshInstance3D = null
 	for m in _meshes(node):
-		var mat := m.material_override as StandardMaterial3D
-		if mat != null and mat.albedo_color.is_equal_approx(Color.hex(0xd0d4daff)): cone = m
+		if m.name == ElementBuilder.CONE_NAME: cone = m
 	assert_true(cone != null, "cone mesh found")
 	if cone != null:
 		var arrays := cone.mesh.surface_get_arrays(0)
@@ -142,4 +151,18 @@ func test_cone_is_flat_shaded() -> void:
 			for i in [i0, i1, i2]:
 				# Normals are stored compressed by the engine, so compare by direction.
 				assert_true(absf(normals[i].dot(face)) > 0.999, "normal %d of triangle %d is the face normal" % [i, t / 3])
+	node.free()
+
+
+## tube_path builds bars, joints and posts through the given axis points.
+func test_tube_path() -> void:
+	var node := _build("tube_path", 0, {"tubePoints": [[0, 3, 0], [2, 3, 0], [2, 3, 2]], "tubePosts": [0]})
+	var bars := 0
+	var posts := 0
+	for m in _meshes(node):
+		if m.mesh is CylinderMesh and is_equal_approx((m.mesh as CylinderMesh).height, ElementBuilder.POST_HEIGHT): posts += 1
+		elif m.mesh is CylinderMesh: bars += 1
+	assert_eq(bars, 2, "two bars")
+	assert_eq(posts, 1, "one post")
+	assert_true(ElementBuilder.collision_faces(node, {"element": "tube_path"}).size() > 0, "solid")
 	node.free()

@@ -26,9 +26,18 @@ static func cells_with_element(level: LevelData, element: String) -> Array[Vecto
 static func start_position(level: LevelData, marble_radius: float) -> Vector3:
 	var cells := cells_with_element(level, START_ELEMENT)
 	if cells.is_empty(): return Vector3.INF
+	var block := level.get_block(cells[0].x, cells[0].y)
+	var at := element_point(block)
+	var y := BlockSurface.surface_y(block, at.x, at.y)
+	return LevelView.grid_to_world(cells[0].x, cells[0].y) + Vector3(at.x, y + marble_radius + START_LIFT, at.y)
+
+
+## Returns the block local point of the element of a block: "elemOffset" [u, v] or the center.
+static func element_point(block: Dictionary) -> Vector2:
+	var offset: Variant = block.get("elemOffset")
+	if offset is Array and offset.size() == 2: return Vector2(BlockSurface._num(offset[0]), BlockSurface._num(offset[1]))
 	var half := Constants.BLOCK_SIZE / 2.0
-	var y := BlockSurface.surface_y(level.get_block(cells[0].x, cells[0].y), half, half)
-	return LevelView.grid_to_world(cells[0].x, cells[0].y) + Vector3(half, y + marble_radius + START_LIFT, half)
+	return Vector2(half, half)
 
 
 ## Returns the height below which the marble has fallen off the level.

@@ -129,3 +129,14 @@ func test_wrong_typed_values_coerced_and_buildable() -> void:
 	view.bind(level)
 	view.rebuild_all()
 	view.free()
+
+
+## arcadeFocus survives a JSON round trip; a malformed one is ignored.
+func test_arcade_focus_round_trip() -> void:
+	var r := LevelIO.parse('{"blocks": {}, "arcadeFocus": [1.5, 2, 3]}')
+	var level: LevelData = r["level"]
+	assert_true(level.arcade_focus.is_equal_approx(Vector3(1.5, 2, 3)), "parsed")
+	var again: LevelData = LevelIO.parse(LevelIO.serialize(level))["level"]
+	assert_true(again.arcade_focus.is_equal_approx(Vector3(1.5, 2, 3)), "round trip")
+	var bad: LevelData = LevelIO.parse('{"blocks": {}, "arcadeFocus": [1, "x"]}')["level"]
+	assert_eq(bad.arcade_focus, Vector3.INF, "malformed ignored")

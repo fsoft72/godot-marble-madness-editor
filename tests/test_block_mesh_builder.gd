@@ -175,14 +175,14 @@ func test_top_uv_orientation() -> void:
 func test_vertex_shades() -> void:
 	var flat: PackedColorArray = _attr(BlockMeshBuilder.build(BlockData.make(0, 0, {})), BlockMeshBuilder.SURFACE_TOP, Mesh.ARRAY_COLOR)
 	for c in flat:
-		assert_near(c.r, Constants.SHADE["FLAT"], COLOR_EPS, "flat shade")
+		assert_near(c.r, BlockMeshBuilder.shade_color(Constants.SHADE["FLAT"]).r, COLOR_EPS, "flat shade")
 	var leg: PackedColorArray = _attr(BlockMeshBuilder.build(_shaped("chute_leg_x")), BlockMeshBuilder.SURFACE_TOP, Mesh.ARRAY_COLOR)
 	for c in leg:
-		assert_near(c.r, Constants.SHADE["WHITE"], COLOR_EPS, "leg shade")
+		assert_near(c.r, BlockMeshBuilder.shade_color(Constants.SHADE["WHITE"]).r, COLOR_EPS, "leg shade")
 	var explicit := BlockData.make(0, 0, {"subShades": [[0.1, 0.1, 0.1], [0.1, 0.1, 0.1], [0.1, 0.1, 0.1]]})
 	var forced: PackedColorArray = _attr(BlockMeshBuilder.build(explicit), BlockMeshBuilder.SURFACE_TOP, Mesh.ARRAY_COLOR)
 	for c in forced:
-		assert_near(c.r, 0.1, COLOR_EPS, "explicit sub shade")
+		assert_near(c.r, BlockMeshBuilder.shade_color(0.1).r, COLOR_EPS, "explicit sub shade")
 
 
 ## Wing cutouts drop tiles and walls; the kept half is a triangle fan on the diagonal.
@@ -232,3 +232,18 @@ func test_unknown_values_do_not_crash() -> void:
 	var mesh := BlockMeshBuilder.build(block)
 	assert_true(mesh.get_surface_count() > 0, "builds something")
 	assert_eq(BlockMeshBuilder.build_collision_faces({}).size() % 3, 0, "empty dict is tolerated")
+
+
+## A "tiles" block skips holes and adds walls only where neighbor tiles do not join.
+func test_tiles_block_walls() -> void:
+	var flat := [0.0, 0.0, 0.0, 0.0]
+	var joined := BlockData.make(0, 0, {"tiles": [[flat, flat, flat], [flat, flat, flat], [flat, flat, flat]]})
+	var stepped := BlockData.make(0, 0, {"tiles": [[flat, flat, flat], [flat, [1.0, 1.0, 1.0, 1.0], flat], [flat, flat, null]]})
+	var parts_j := BlockMeshBuilder.build_parts(joined)
+	var parts_s := BlockMeshBuilder.build_parts(stepped)
+	assert_eq(parts_j[BlockMeshBuilder.SURFACE_TOP].positions.size(), 9 * 6, "nine tiles")
+	assert_eq(parts_s[BlockMeshBuilder.SURFACE_TOP].positions.size(), 8 * 6, "hole skipped")
+	var walls_j: int = parts_j[BlockMeshBuilder.SURFACE_WALL].positions.size() + parts_j[BlockMeshBuilder.SURFACE_WALL_RIGHT].positions.size()
+	var walls_s: int = parts_s[BlockMeshBuilder.SURFACE_WALL].positions.size() + parts_s[BlockMeshBuilder.SURFACE_WALL_RIGHT].positions.size()
+	assert_eq(walls_j, 12 * 6, "only the block perimeter has walls")
+	assert_true(walls_s > walls_j, "the raised tile and the hole add walls")

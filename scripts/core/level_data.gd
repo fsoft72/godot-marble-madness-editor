@@ -13,6 +13,9 @@ var cols: int = Constants.DEFAULT_GRID
 var rows: int = Constants.DEFAULT_GRID
 ## Blocks keyed by "bx,bz".
 var blocks: Dictionary = {}
+## World point shown at the center of the arcade view (JSON "arcadeFocus" [x, y, z]);
+## Vector3.INF when the level does not set one.
+var arcade_focus := Vector3.INF
 
 
 ## Returns the dictionary key for a cell.
@@ -40,9 +43,10 @@ func in_bounds(bx: int, bz: int) -> bool:
 	return bx >= 0 and bz >= 0 and bx < cols and bz < rows
 
 
-## Removes all blocks and keeps the grid size.
+## Removes all blocks and the arcade focus, keeps the grid size.
 func clear() -> void:
 	blocks.clear()
+	arcade_focus = Vector3.INF
 
 
 ## Returns the whole level state (size and blocks) as a JSON string.
@@ -64,11 +68,14 @@ func copy_from(other: LevelData) -> void:
 	cols = other.cols
 	rows = other.rows
 	blocks = other.blocks.duplicate(true)
+	arcade_focus = other.arcade_focus
 
 
 ## Returns a plain dictionary ready for JSON serialization.
 func to_dict() -> Dictionary:
-	return {"version": FORMAT_VERSION, "cols": cols, "rows": rows, "blocks": blocks.duplicate(true)}
+	var d := {"version": FORMAT_VERSION, "cols": cols, "rows": rows, "blocks": blocks.duplicate(true)}
+	if arcade_focus != Vector3.INF: d["arcadeFocus"] = [arcade_focus.x, arcade_focus.y, arcade_focus.z]
+	return d
 
 
 ## Builds a level from a dictionary. Returns null if "blocks" is not a Dictionary.
@@ -79,11 +86,20 @@ static func from_dict(d: Dictionary) -> LevelData:
 	var level := LevelData.new()
 	level.cols = _read_size(d.get("cols"))
 	level.rows = _read_size(d.get("rows"))
+	level.arcade_focus = _read_focus(d.get("arcadeFocus"))
 	for k in raw_blocks:
 		var block := _normalize_block(str(k), raw_blocks[k])
 		if block.is_empty(): continue
 		level.blocks[key(block["bx"], block["bz"])] = block
 	return level
+
+
+## Reads an [x, y, z] number array, Vector3.INF when missing or malformed.
+static func _read_focus(v: Variant) -> Vector3:
+	if not v is Array or v.size() != 3: return Vector3.INF
+	for n in v:
+		if not (n is float or n is int): return Vector3.INF
+	return Vector3(v[0], v[1], v[2])
 
 
 ## Reads a grid size value, falling back to the default when missing or invalid.

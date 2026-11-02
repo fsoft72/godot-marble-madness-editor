@@ -198,7 +198,8 @@ func test_standalone_scene_loads_level() -> void:
 	assert_true(player.marble != null, "marble")
 	assert_true(player.level.blocks.size() > 0, "level loaded")
 	assert_eq(player.phase, PlayerRoot.Phase.PLAYING, "playing")
-	var marble_node := player.view.block_node(1, 1).get_node("Element/Marble") as Node3D
+	var start: Vector2i = LevelRules.cells_with_element(player.level, LevelRules.START_ELEMENT)[0]
+	var marble_node := player.view.block_node(start.x, start.y).get_node("Element/Marble") as Node3D
 	assert_true(not marble_node.visible, "static marble hidden")
 	_finish(player)
 

@@ -4,20 +4,25 @@ extends RefCounted
 ## createGuardTubeSegment from js/geometry.js). Visual only, no collision.
 ## Output coordinates are block local: x = u, z = v, y is world height.
 
-const POST_HEIGHT := 0.42
-const TUBE_RADIUS := 0.13
+## Height of the rail axis above the floor and rail radius (measured on the arcade reference:
+## the rail top is 8 pixels above the floor, the rail is 5 pixels thick).
+const POST_HEIGHT := 0.55
+const TUBE_RADIUS := 0.26
 const MARBLE_RADIUS := 0.52
 const DEFAULT_MARBLE_COLOR := 0xe61922
 const POLE_HEIGHT := 1.95
 const FLAG_WIDTH := 0.92
 const FLAG_HEIGHT := 0.65
 const ROUND_SEGMENTS := 12
-## Opacity of the marble in play: the editor glass is too pale to follow on the gray floor.
-const ROLLING_MARBLE_ALPHA := 0.85
+const GLASS_SHADER_PATH := "res://shaders/glass_marble.gdshader"
 ## Height of the invisible copy of a tube collider that stops the marble climbing over the rail.
 const TUBE_COLLISION_LIFT := 0.5
 const CONE_NAME := "Cone"
-const TUBE_ELEMENTS: Array[String] = ["tube_straight", "tube_corner", "tube_u"]
+const TUBE_ELEMENTS: Array[String] = ["tube_straight", "tube_corner", "tube_u", "tube_path"]
+const TOON_SHADER_PATH := "res://shaders/arcade_toon.gdshader"
+## Toon ramps (sRGB 0..255), darkest first: red tubes and gray cones of the arcade palette.
+const TUBE_RAMP: Array[Vector3] = [Vector3(102, 34, 34), Vector3(136, 34, 34), Vector3(170, 34, 34), Vector3(221, 51, 51), Vector3(255, 136, 136)]
+const CONE_RAMP: Array[Vector3] = [Vector3(51, 51, 51), Vector3(68, 68, 68), Vector3(153, 153, 153), Vector3(187, 187, 187), Vector3(221, 221, 221)]
 const CONE_ELEMENTS: Array[String] = ["cone_small", "cone_large"]
 
 
@@ -31,6 +36,7 @@ static func build(block: Dictionary) -> Node3D:
 		"tube_straight": _build_tube_straight(root, block, rot)
 		"tube_corner": _build_tube_path(root, block, rot, [Vector2(0.18, 2.85), Vector2(0.18, 0.18), Vector2(2.85, 0.18)])
 		"tube_u": _build_tube_path(root, block, rot, [Vector2(0.15, 2.85), Vector2(0.15, 0.15), Vector2(2.85, 0.15), Vector2(2.85, 2.85)])
+		"tube_path": _build_tube_points(root, block)
 		"cone_small": _build_cone(root, block, rot, false)
 		"cone_large": _build_cone(root, block, rot, true)
 		"goal_flags": _build_flags(root, block, rot)
@@ -65,9 +71,6 @@ static func make_rolling_marble(color_value: Variant) -> Node3D:
 	var shadow := marble.get_node("MarbleShadow")
 	marble.remove_child(shadow)
 	shadow.free()
-	var sphere := marble.get_node("MarbleSphere") as MeshInstance3D
-	var glass := sphere.material_override as StandardMaterial3D
-	glass.albedo_color.a = ROLLING_MARBLE_ALPHA
 	return marble
 
 
@@ -89,12 +92,67 @@ static func _rotate_point(u: float, v: float, rot: float) -> Vector2:
 	return BlockSurface.rotate_uv(u, v, rot)
 
 
-## Returns a new red tube material.
-static func _tube_material() -> StandardMaterial3D:
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color.hex(0xd82218ff)
-	mat.roughness = 0.45
+## Returns a new red tube material (arcade toon ramp).
+static func _tube_material() -> ShaderMaterial:
+	return toon_material(TUBE_RAMP)
+
+
+## Returns a toon shader material with a five color ramp (sRGB 0..255, darkest first).
+static func toon_material(ramp: Array[Vector3]) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load(TOON_SHADER_PATH)
+	for i in 5:
+		mat.set_shader_parameter("c%d" % i, ramp[i])
 	return mat
+
+
+## Adds a guard tube through free points: block "tubePoints" [[u, y, v], ...] are rail axis
+## points in block local x/z with absolute height y; "tubePosts" lists the indices of the
+## points that stand on a post down to the floor (POST_HEIGHT below the axis).
+static func _build_tube_points(root: Node3D, block: Dictionary) -> void:
+	var raw: Variant = block.get("tubePoints")
+	if not raw is Array or raw.size() < 2: return
+	var pts: Array[Vector3] = []
+	for p in raw:
+		if p is Array and p.size() == 3: pts.append(Vector3(BlockSurface._num(p[0]), BlockSurface._num(p[1]), BlockSurface._num(p[2])))
+	if pts.size() < 2: return
+	var mat := _tube_material()
+	var group := Node3D.new()
+	root.add_child(group)
+	for i in range(pts.size() - 1):
+		_add_bar(group, pts[i], pts[i + 1], mat)
+	var joint := SphereMesh.new()
+	joint.radius = TUBE_RADIUS
+	joint.height = TUBE_RADIUS * 2.0
+	joint.radial_segments = ROUND_SEGMENTS
+	joint.rings = ROUND_SEGMENTS / 2
+	for p in pts: _add_mesh(group, joint, mat, p)
+	var posts: Variant = block.get("tubePosts")
+	if not posts is Array: return
+	var post_mesh := CylinderMesh.new()
+	post_mesh.top_radius = TUBE_RADIUS * 0.85
+	post_mesh.bottom_radius = TUBE_RADIUS * 0.92
+	post_mesh.height = POST_HEIGHT
+	post_mesh.radial_segments = ROUND_SEGMENTS
+	post_mesh.rings = 1
+	for idx in posts:
+		var i := int(BlockSurface._num(idx))
+		if i < 0 or i >= pts.size(): continue
+		_add_mesh(group, post_mesh, mat, pts[i] - Vector3(0, POST_HEIGHT * 0.5, 0))
+
+
+## Adds a straight rail bar between two axis points.
+static func _add_bar(parent: Node3D, p0: Vector3, p1: Vector3, mat: Material) -> void:
+	var dir := p1 - p0
+	if dir.length() < 0.0001: return
+	var bar_mesh := CylinderMesh.new()
+	bar_mesh.top_radius = TUBE_RADIUS
+	bar_mesh.bottom_radius = TUBE_RADIUS
+	bar_mesh.height = dir.length()
+	bar_mesh.radial_segments = ROUND_SEGMENTS
+	bar_mesh.rings = 1
+	var bar := _add_mesh(parent, bar_mesh, mat, p0 + dir * 0.5)
+	bar.basis = Basis(_arc(Vector3.UP, dir.normalized()))
 
 
 ## Adds a single straight tube along the block edge, honouring an optional tubeSpan.
@@ -165,6 +223,9 @@ static func _add_mesh(parent: Node3D, mesh: Mesh, mat: Material, pos: Vector3) -
 	inst.mesh = mesh
 	inst.material_override = mat
 	inst.position = pos
+	# Toon shaded parts are lit by the sun only, like the blocks (the fill light skips them).
+	if mat is ShaderMaterial and (mat as ShaderMaterial).shader.resource_path == TOON_SHADER_PATH:
+		inst.layers = Constants.BLOCK_RENDER_LAYER
 	parent.add_child(inst)
 	return inst
 
@@ -201,17 +262,23 @@ static func _flat_shaded(source: Mesh) -> ArrayMesh:
 static func _build_cone(root: Node3D, block: Dictionary, rot: float, is_large: bool) -> void:
 	var radius := 1.18 if is_large else 0.72
 	var height := 1.85 if is_large else 1.18
+	var size: Variant = block.get("coneSize")
+	if size is Array and size.size() == 2:
+		radius = BlockSurface._num(size[0])
+		height = BlockSurface._num(size[1])
 	var shape := str(block.get("shape", "flat"))
 	var cu := 1.5
 	var cv := 1.5
-	if is_large and shape == "pit_stepped":
+	var offset: Variant = block.get("elemOffset")
+	if offset is Array and offset.size() == 2:
+		cu = BlockSurface._num(offset[0])
+		cv = BlockSurface._num(offset[1])
+	elif is_large and shape == "pit_stepped":
 		var c := _rotate_point(1.0, 1.0, BlockSurface._num(block.get("rotation")))
 		cu = c.x
 		cv = c.y
 	var base_y := BlockSurface._num(block.get("elevation")) if shape == "pit_stepped" else BlockSurface.surface_y(block, cu, cv)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color.hex(0xd0d4daff)
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
+	var mat := toon_material(CONE_RAMP)
 	var source := CylinderMesh.new()
 	source.top_radius = 0.0
 	source.bottom_radius = radius
@@ -221,7 +288,7 @@ static func _build_cone(root: Node3D, block: Dictionary, rot: float, is_large: b
 	var cone := _add_mesh(root, _flat_shaded(source), mat, Vector3(cu, base_y + height * 0.5, cv))
 	cone.name = CONE_NAME
 	cone.rotation.y = PI / 4.0 + deg_to_rad(rot)
-	if shape == "pit": return
+	if shape == "pit" or block.has("coneSize"): return
 	_add_cone_shadow(root, Vector3(cu, base_y + 0.02, cv), is_large)
 
 
@@ -267,19 +334,32 @@ static func _build_flags(root: Node3D, block: Dictionary, rot: float) -> void:
 	var flag_mesh := QuadMesh.new()
 	flag_mesh.size = Vector2(FLAG_WIDTH, FLAG_HEIGHT)
 	var flag_mat := TextureFactory.flag_material()
-	for p in [_rotate_point(0.15, 1.5, rot), _rotate_point(2.85, 1.5, rot)]:
-		var y := BlockSurface.surface_y(block, p.x, p.y)
+	var feet: Array[Vector3] = []
+	var raw: Variant = block.get("flagPoints")
+	if raw is Array:
+		for f in raw:
+			if f is Array and f.size() == 3: feet.append(Vector3(BlockSurface._num(f[0]), BlockSurface._num(f[1]), BlockSurface._num(f[2])))
+	if feet.is_empty():
+		for q in [_rotate_point(0.15, 1.5, rot), _rotate_point(2.85, 1.5, rot)]:
+			feet.append(Vector3(q.x, BlockSurface.surface_y(block, q.x, q.y), q.y))
+	for foot in feet:
+		var p := Vector2(foot.x, foot.z)
+		var y := foot.y
 		_add_mesh(root, pole_mesh, pole_mat, Vector3(p.x, y + POLE_HEIGHT * 0.5, p.y))
 		var flag := _add_mesh(root, flag_mesh, flag_mat, Vector3(p.x - 0.25, y + POLE_HEIGHT - FLAG_HEIGHT * 0.5, p.y - 0.25))
 		flag.rotation.y = PI / 4.0 + deg_to_rad(rot)
 
 
-## Adds the glass marble: contact shadow, inner eight point square and tinted sphere.
+## Adds the glass marble: contact shadow and the ray traced glass sphere (its inner core of
+## eight dots is traced by the shader).
 static func _build_marble(root: Node3D, block: Dictionary, rot: float) -> void:
 	var marble := Node3D.new()
 	marble.name = "Marble"
-	var y := BlockSurface.surface_y(block, 1.5, 1.5)
-	marble.position = Vector3(1.5, y + MARBLE_RADIUS, 1.5)
+	var at := Vector2(1.5, 1.5)
+	var offset: Variant = block.get("elemOffset")
+	if offset is Array and offset.size() == 2: at = Vector2(BlockSurface._num(offset[0]), BlockSurface._num(offset[1]))
+	var y := BlockSurface.surface_y(block, at.x, at.y)
+	marble.position = Vector3(at.x, y + MARBLE_RADIUS, at.y)
 	root.add_child(marble)
 	var shadow_mesh := CylinderMesh.new()
 	shadow_mesh.top_radius = MARBLE_RADIUS * 0.88
@@ -294,44 +374,27 @@ static func _build_marble(root: Node3D, block: Dictionary, rot: float) -> void:
 	var shadow := _add_mesh(marble, shadow_mesh, shadow_mat, Vector3(0, -MARBLE_RADIUS + 0.02, 0))
 	shadow.name = "MarbleShadow"
 	shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var inner := Node3D.new()
-	inner.name = "InnerSquare"
-	inner.rotation = Vector3(PI * 0.22, deg_to_rad(rot), PI * 0.15)
-	marble.add_child(inner)
-	_add_inner_points(inner)
 	var marble_color := _parse_marble_color(block.get("marbleColor"))
 	var sphere_mesh := SphereMesh.new()
 	sphere_mesh.radius = MARBLE_RADIUS
 	sphere_mesh.height = MARBLE_RADIUS * 2.0
 	sphere_mesh.radial_segments = 32
 	sphere_mesh.rings = 16
-	var glass := StandardMaterial3D.new()
-	glass.albedo_color = Color(marble_color, 0x85 / 255.0)
-	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	glass.metallic_specular = 1.0
-	glass.roughness = 0.12
-	var sphere := _add_mesh(marble, sphere_mesh, glass, Vector3.ZERO)
+	var sphere := _add_mesh(marble, sphere_mesh, make_glass_material(marble_color, rot), Vector3.ZERO)
 	sphere.name = "MarbleSphere"
+	sphere.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 
 
-## Adds the 4 corner and 4 median dots of the inner square.
-static func _add_inner_points(inner: Node3D) -> void:
-	var s := MARBLE_RADIUS * 0.48
-	var points := [Vector3(-s, 0, -s), Vector3(s, 0, -s), Vector3(s, 0, s), Vector3(-s, 0, s),
-		Vector3(0, 0, -s), Vector3(s, 0, 0), Vector3(0, 0, s), Vector3(-s, 0, 0)]
-	var dot := SphereMesh.new()
-	dot.radius = MARBLE_RADIUS * 0.095
-	dot.height = dot.radius * 2.0
-	dot.radial_segments = 14
-	dot.rings = 7
-	var corner_mat := StandardMaterial3D.new()
-	corner_mat.albedo_color = Color.hex(0xfff275ff)
-	corner_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	var median_mat := StandardMaterial3D.new()
-	median_mat.albedo_color = Color.hex(0x48dbfbff)
-	median_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	for i in range(points.size()):
-		_add_mesh(inner, dot, corner_mat if i < 4 else median_mat, points[i])
+## Returns the ray traced glass material of a marble (shaders/glass_marble.gdshader): tinted by
+## `color`, with the inner core of eight dots turned like the JS inner square (elemRotation).
+static func make_glass_material(color: Color, rot_degrees: float = 0.0) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load(GLASS_SHADER_PATH)
+	mat.set_shader_parameter("tint", Color(color.r, color.g, color.b))
+	mat.set_shader_parameter("radius", MARBLE_RADIUS)
+	mat.set_shader_parameter("sun_dir_world", -LevelEnvironment.sun_direction())
+	mat.set_shader_parameter("core_basis", Basis.from_euler(Vector3(PI * 0.22, deg_to_rad(rot_degrees), PI * 0.15)))
+	return mat
 
 
 ## Parses marbleColor: a '#rrggbb' string or an int 0xrrggbb; invalid values give the default red.

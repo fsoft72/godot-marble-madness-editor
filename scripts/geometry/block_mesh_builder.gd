@@ -70,6 +70,12 @@ static func build(block: Dictionary) -> ArrayMesh:
 	return mesh
 
 
+## Returns the vertex color of a shade multiplier: R = palette level / 5 (read by the top shader).
+static func shade_color(shade: float) -> Color:
+	var level := Constants.shade_level(shade) / 5.0
+	return Color(level, level, level)
+
+
 ## Returns the triangle soup (all surfaces, in surface order) for a ConcavePolygonShape3D.
 static func build_collision_faces(block: Dictionary) -> PackedVector3Array:
 	var faces := PackedVector3Array()
@@ -89,7 +95,10 @@ static func build_parts(block: Dictionary) -> Dictionary:
 	var parts := {}
 	for surface_name in SURFACE_ORDER:
 		parts[surface_name] = Part.new()
-	if shape == "pit_stepped" or shape == "subtiles_custom":
+	var tiles: Variant = block.get("tiles")
+	if tiles is Array and tiles.size() == 3:
+		_add_tiles(block, tiles, parts)
+	elif shape == "pit_stepped" or shape == "subtiles_custom":
 		_add_stepped(block, parts)
 	else:
 		_add_top(block, parts[SURFACE_TOP])
@@ -100,6 +109,9 @@ static func build_parts(block: Dictionary) -> Dictionary:
 ## Returns the material of a surface for the block (top depends on decal and rotation).
 static func _material_for(surface_name: String, block: Dictionary) -> Material:
 	if surface_name == SURFACE_TOP:
+		var paint: Variant = block.get("paint")
+		if paint is Array and not paint.is_empty():
+			return TextureFactory.make_top_material(TextureFactory.paint_image(paint))
 		return TextureFactory.top_surface_material(str(block.get("decal", "none")), int(_num(block.get("decalRotation"))))
 	return TextureFactory.cliff_materials()[surface_name]
 
@@ -163,7 +175,7 @@ static func _triangle_shade(block: Dictionary, r: int, c: int, upper_left: bool,
 static func _push_top_triangle(block: Dictionary, part: Part, p: Array, uv: Array, r: int, c: int, upper_left: bool) -> void:
 	var n: Vector3 = (p[1] - p[0]).cross(p[2] - p[0]).normalized()
 	var s := _triangle_shade(block, r, c, upper_left, n)
-	part.add_triangle(p, n, uv, Color(s, s, s))
+	part.add_triangle(p, n, uv, shade_color(s))
 
 
 ## Returns whether the tiles of the block are split along the anti-diagonal.
@@ -255,6 +267,59 @@ static func _add_perimeter_walls(block: Dictionary, parts: Dictionary) -> void:
 			_add_wall_with_trim(parts, false, Vector3(0, BlockSurface.surface_y(block, 0, a), a), Vector3(0, BlockSurface.surface_y(block, 0, b), b), a, b)
 
 
+## Height difference below which two tile edges count as joined (no wall between them).
+const EDGE_JOIN_EPS := 0.001
+
+
+## Adds the tiles of a "tiles" block: two triangles per tile from its own corners (holes are
+## skipped) and a cliff wall on every tile edge that is not joined to the neighbor tile.
+static func _add_tiles(block: Dictionary, tiles: Array, parts: Dictionary) -> void:
+	var elev := _num(block.get("elevation"))
+	for r in GRID:
+		for c in GRID:
+			var h := BlockSurface.tile_corners(tiles, c, r)
+			if h.is_empty(): continue
+			var p00 := Vector3(c, elev + h[0], r)
+			var p10 := Vector3(c + 1, elev + h[1], r)
+			var p01 := Vector3(c, elev + h[2], r + 1)
+			var p11 := Vector3(c + 1, elev + h[3], r + 1)
+			var uv00 := _top_uv(c, r)
+			var uv10 := _top_uv(c + 1, r)
+			var uv01 := _top_uv(c, r + 1)
+			var uv11 := _top_uv(c + 1, r + 1)
+			var part: Part = parts[SURFACE_TOP]
+			if BlockSurface.tile_split(block, c, r) == "anti":
+				_push_top_triangle(block, part, [p00, p01, p10], [uv00, uv01, uv10], r, c, true)
+				_push_top_triangle(block, part, [p10, p01, p11], [uv10, uv01, uv11], r, c, false)
+			else:
+				_push_top_triangle(block, part, [p00, p01, p11], [uv00, uv01, uv11], r, c, true)
+				_push_top_triangle(block, part, [p00, p11, p10], [uv00, uv11, uv10], r, c, false)
+			_add_tile_walls(tiles, parts, c, r, h, p00, p10, p01, p11)
+
+
+## Adds the walls of the four edges of tile (c, r) that are not joined to their neighbor
+## tile; h holds the corner offsets [h00, h10, h01, h11] of the tile.
+static func _add_tile_walls(tiles: Array, parts: Dictionary, c: int, r: int, h: Array, p00: Vector3, p10: Vector3, p01: Vector3, p11: Vector3) -> void:
+	# Front-left edge (v = r + 1), normal +Z: joined to the next row's h00, h10.
+	if not _joined(BlockSurface.tile_corners(tiles, c, r + 1), [0, 1], [h[2], h[3]]):
+		_add_wall_with_trim(parts, true, p01, p11, c, c + 1)
+	# Back-right edge (v = r), normal -Z: joined to the previous row's h01, h11.
+	if not _joined(BlockSurface.tile_corners(tiles, c, r - 1), [2, 3], [h[0], h[1]]):
+		_add_wall_with_trim(parts, true, p10, p00, c, c + 1)
+	# Front-right edge (u = c + 1), normal +X: joined to the next column's h00, h01.
+	if not _joined(BlockSurface.tile_corners(tiles, c + 1, r), [0, 2], [h[1], h[3]]):
+		_add_wall_with_trim(parts, false, p11, p10, r, r + 1)
+	# Back-left edge (u = c), normal -X: joined to the previous column's h10, h11.
+	if not _joined(BlockSurface.tile_corners(tiles, c - 1, r), [1, 3], [h[0], h[2]]):
+		_add_wall_with_trim(parts, false, p00, p01, r, r + 1)
+
+
+## Returns whether the neighbor corners n[idx[0]], n[idx[1]] equal the edge offsets `edge`.
+static func _joined(n: Array, idx: Array, edge: Array) -> bool:
+	if n.is_empty(): return false
+	return absf(n[idx[0]] - edge[0]) < EDGE_JOIN_EPS and absf(n[idx[1]] - edge[1]) < EDGE_JOIN_EPS
+
+
 ## Adds the stepped sub-tile pillars of pit_stepped and subtiles_custom blocks.
 static func _add_stepped(block: Dictionary, parts: Dictionary) -> void:
 	var elev := _num(block.get("elevation"))
@@ -296,8 +361,7 @@ static func _add_stepped_tile(parts: Dictionary, c: int, r: int, y: float) -> vo
 	var u1 := (c + 1) / 3.0
 	var v0 := r / 3.0
 	var v1 := (r + 1) / 3.0
-	var s: float = Constants.SHADE["FLAT"]
-	var color := Color(s, s, s)
+	var color := shade_color(Constants.SHADE["FLAT"])
 	part.add_triangle([Vector3(x0, y, z0), Vector3(x0, y, z1), Vector3(x1, y, z1)], Vector3.UP, [Vector2(u0, v0), Vector2(u0, v1), Vector2(u1, v1)], color)
 	part.add_triangle([Vector3(x0, y, z0), Vector3(x1, y, z1), Vector3(x1, y, z0)], Vector3.UP, [Vector2(u0, v0), Vector2(u1, v1), Vector2(u1, v0)], color)
 	_add_wall_with_trim(parts, true, Vector3(x0, y, z1), Vector3(x1, y, z1), c, c + 1)

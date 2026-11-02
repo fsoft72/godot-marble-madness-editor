@@ -18,7 +18,7 @@ static func rotate_uv(u: float, v: float, rotation: float = 0.0) -> Vector2:
 
 
 ## Returns the world Y at local (u, v) of a block dictionary.
-## Priority: vGrid (4x4 offsets), corners [c00, c10, c01, c11], then parametric shapes.
+## Priority: tiles (per tile corners), vGrid (4x4 offsets), corners [c00, c10, c01, c11], then parametric shapes.
 ## Missing fields follow the JS defaults (elevation, slope, tilt, rotation = 0; shape = flat).
 static func surface_y(block: Dictionary, u: float, v: float) -> float:
 	var elev := _num(block.get("elevation"))
@@ -27,6 +27,9 @@ static func surface_y(block: Dictionary, u: float, v: float) -> float:
 	var rot := _num(block.get("rotation"))
 	var shape: String = str(block.get("shape", ""))
 	if shape == "": shape = "flat"
+	var tiles: Variant = block.get("tiles")
+	if tiles is Array and tiles.size() == 3:
+		return _tiles_y(block, tiles, elev, u, v)
 	var v_grid: Variant = block.get("vGrid")
 	if v_grid is Array and v_grid.size() == 4:
 		return _grid_y(elev, v_grid, str(block.get("diagSplit", "")), u, v)
@@ -54,6 +57,40 @@ static func _num(value: Variant) -> float:
 	if value is float or value is int: return float(value)
 	if value is String: return (value as String).to_float()
 	return 0.0
+
+
+## Returns the corner offsets [h00, h10, h01, h11] of tile (c, r) of a "tiles" array,
+## or an empty array for a hole (null) or a malformed entry.
+static func tile_corners(tiles: Variant, c: int, r: int) -> Array:
+	if not tiles is Array or r < 0 or r >= tiles.size(): return []
+	var row: Variant = tiles[r]
+	if not row is Array or c < 0 or c >= row.size(): return []
+	var t: Variant = row[c]
+	if not t is Array or t.size() != 4: return []
+	return [_num(t[0]), _num(t[1]), _num(t[2]), _num(t[3])]
+
+
+## Returns the diagonal split ("main" or "anti") of tile (c, r): tileSplit entry, then the
+## block diagSplit, then "main".
+static func tile_split(block: Dictionary, c: int, r: int) -> String:
+	var splits: Variant = block.get("tileSplit")
+	if splits is Array and r < splits.size() and splits[r] is Array and c < splits[r].size():
+		var s := str(splits[r][c])
+		if s == "main" or s == "anti": return s
+	return "anti" if str(block.get("diagSplit", "")) == "anti" else "main"
+
+
+## Height inside the tile of a "tiles" block that contains (u, v); holes give the elevation.
+static func _tiles_y(block: Dictionary, tiles: Array, elev: float, u: float, v: float) -> float:
+	var c := clampi(floori(2.0 if u == 3.0 else u), 0, 2)
+	var r := clampi(floori(2.0 if v == 3.0 else v), 0, 2)
+	var h := tile_corners(tiles, c, r)
+	if h.is_empty(): return elev
+	var fu := clampf(u - c, 0.0, 1.0)
+	var fv := clampf(v - r, 0.0, 1.0)
+	if tile_split(block, c, r) == "anti":
+		return elev + _anti_split(h[0], h[1], h[2], h[3], fu, fv)
+	return elev + _main_split(h[0], h[1], h[2], h[3], fu, fv)
 
 
 ## Height inside the vGrid sub-tile that contains (u, v).

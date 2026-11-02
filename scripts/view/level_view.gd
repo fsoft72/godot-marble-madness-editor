@@ -112,6 +112,7 @@ func _add_geometry(node: Node3D, block: Dictionary, faces: PackedVector3Array) -
 	var mesh_instance := MeshInstance3D.new()
 	mesh_instance.name = MESH_NAME
 	mesh_instance.mesh = BlockMeshBuilder.build(block)
+	mesh_instance.layers = Constants.BLOCK_RENDER_LAYER
 	node.add_child(mesh_instance)
 	_add_static_body(node, BODY_NAME, faces)
 

@@ -27,8 +27,10 @@ const PERSP_FAR := 400.0
 ## Perspective orbit distance bounds.
 const DISTANCE_MIN := 5.0
 const DISTANCE_MAX := 250.0
-## Reset view: offset (52, 52 * 0.96, 52) from the focus, as in setArcadeIsometricView.
-const RESET_OFFSET := Vector3(52.0, 49.92, 52.0)
+## Reset view: offset from the focus at the 2:1 arcade pitch of ArcadeProjection (30 degrees):
+## height = 52 * sqrt(2) * tan(30 deg). The JS source used 52 * 0.96 (34.2 degrees), which does
+## not give the 16x8 pixel tile diamonds of the arcade reference.
+const RESET_OFFSET := Vector3(52.0, 42.45883, 52.0)
 const RESET_YAW := PI / 4.0
 ## Pitch limits in radians above the horizon (js maxPolarAngle = 0.49 PI).
 const PITCH_MIN := PI * 0.01

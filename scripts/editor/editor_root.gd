@@ -167,13 +167,12 @@ func paint_cell(cell: Vector2i) -> void:
 	_after_edit()
 
 
-## Moves the camera focus to the level center; reset_view also restores the arcade view.
+## Moves the camera focus to the arcade focus of the level, or to its center when it has none;
+## reset_view also restores the arcade view.
 func center_camera(reset_view: bool = false) -> void:
 	_centered_size = Vector2i(level.cols, level.rows)
-	rig.focus_on(Vector3(
-		level.cols * Constants.BLOCK_SIZE / 2.0,
-		BlockData.defaults()["elevation"],
-		level.rows * Constants.BLOCK_SIZE / 2.0))
+	var center := Vector3(level.cols * Constants.BLOCK_SIZE / 2.0, BlockData.defaults()["elevation"], level.rows * Constants.BLOCK_SIZE / 2.0)
+	rig.focus_on(level.arcade_focus if level.arcade_focus != Vector3.INF else center)
 	if reset_view: rig.reset_arcade_view()
 
 

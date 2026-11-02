@@ -7,7 +7,7 @@ const SCENE_PATH := "res://scenes/editor.tscn"
 const GOLDEN_EPS := 1e-4
 
 
-## Reads the golden file written by tools/gen_golden.mjs: {block_count, samples}.
+## Reads the golden file written by tools/reconstruct/golden.py: {block_count, cols, rows, samples}.
 func _load_golden() -> Dictionary:
 	var file := FileAccess.open(GOLDEN_PATH, FileAccess.READ)
 	assert_true(file != null, "level01 golden opens")
@@ -39,13 +39,13 @@ func _free_editor(root: EditorRoot) -> void:
 	await tree.process_frame
 
 
-## The preset is a 14x14 level with as many blocks as the JS preset.
+## Level 1 has the size and block count recorded by tools/reconstruct/golden.py.
 func test_level01_loads() -> void:
 	var level := _load_level()
 	if level == null: return
-	assert_eq(level.cols, 14, "cols")
-	assert_eq(level.rows, 14, "rows")
 	var golden := _load_golden()
+	assert_eq(level.cols, int(golden.get("cols", -1)), "cols")
+	assert_eq(level.rows, int(golden.get("rows", -1)), "rows")
 	assert_true(int(golden.get("block_count", 0)) > 0, "golden block count recorded")
 	assert_eq(level.blocks.size(), int(golden.get("block_count", -1)), "block count")
 
@@ -74,7 +74,7 @@ func test_level01_round_trip() -> void:
 	assert_true(res["level"].to_dict() == level.to_dict(), "round trip equal")
 
 
-## surface_y samples taken from the JS preset match.
+## surface_y matches the independent Python evaluation of the tile heights.
 func test_level01_surface_golden() -> void:
 	var level := _load_level()
 	if level == null: return
@@ -105,8 +105,8 @@ func test_load_level01_reframes() -> void:
 	var root := await _make_editor()
 	root.rig.focus_on(Vector3(1, 2, 3))
 	root.load_level01()
-	var half := 14 * Constants.BLOCK_SIZE / 2.0
-	assert_true(root.rig.focus.is_equal_approx(Vector3(half, BlockData.defaults()["elevation"], half)), "focus recentered")
+	assert_true(root.level.arcade_focus != Vector3.INF, "level 1 has an arcade focus")
+	assert_true(root.rig.focus.is_equal_approx(root.level.arcade_focus), "focus on the arcade focus of the level")
 	await _free_editor(root)
 
 

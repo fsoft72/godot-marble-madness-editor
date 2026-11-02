@@ -15,8 +15,7 @@ func test_same_args_return_cached_instance() -> void:
 	var a := TextureFactory.top_surface_material("pad_456", 90)
 	var b := TextureFactory.top_surface_material("pad_456", 90)
 	assert_true(a == b, "cached instance")
-	assert_true(a.vertex_color_use_as_albedo, "vertex colors enabled")
-	assert_eq(a.texture_filter, BaseMaterial3D.TEXTURE_FILTER_NEAREST, "nearest filter")
+	assert_eq(a.shader.resource_path, TextureFactory.TOP_SHADER_PATH, "arcade top shader")
 
 
 ## Different decals (or rotations) give different materials.
@@ -37,35 +36,45 @@ func test_unknown_decal_falls_back_to_none() -> void:
 	assert_true(none_mat == unknown, "same cached material")
 
 
-## The base tile texture is 192x192.
-func test_base_tile_texture_size_192() -> void:
+## The tile pattern has 16x16 texels with offsets 0..2 and a line (2) at the tile corner.
+func test_tile_pattern() -> void:
 	_clear()
-	var tex := TextureFactory.top_surface_material("none", 0).albedo_texture
-	assert_eq(tex.get_width(), BASE_TILE_SIZE, "width")
-	assert_eq(tex.get_height(), BASE_TILE_SIZE, "height")
+	var img: Image = TextureFactory.tile_pattern_texture().get_image()
+	assert_eq(img.get_width(), TextureFactory.TILE_PATTERN_SIZE, "width")
+	assert_near(img.get_pixel(0, 0).r * 3.0, 2.0, 0.01, "line at the corner")
+	assert_near(img.get_pixel(8, 8).r * 3.0, 0.0, 0.01, "fill in the middle")
 
 
-## Rotating a decal by 90 degrees changes the pixels of an asymmetric decal.
-func test_decal_rotation_changes_texture() -> void:
+## Rotating a decal by 90 degrees moves the red paint of an asymmetric decal.
+func test_decal_rotation_changes_paint() -> void:
 	_clear()
-	var img0 := TextureFactory.top_surface_material("arrow_long_chevrons", 0).albedo_texture.get_image()
-	var img90 := TextureFactory.top_surface_material("arrow_long_chevrons", 90).albedo_texture.get_image()
-	# Shaft runs along the vertical center at rotation 0 and the horizontal center at 90.
-	var red0 := img0.get_pixel(96, 20)
-	var red90 := img90.get_pixel(20, 96)
-	assert_true(red0.r > 0.7 and red0.g < 0.3, "red shaft at rotation 0")
-	assert_true(red90.r > 0.7 and red90.g < 0.3, "red shaft at rotation 90")
-	assert_true(img90.get_pixel(96, 20).g > 0.5, "no shaft at old position")
+	var img0: Image = (TextureFactory.top_surface_material("arrow_long_chevrons", 0).get_shader_parameter("paint") as Texture2D).get_image()
+	var img90: Image = (TextureFactory.top_surface_material("arrow_long_chevrons", 90).get_shader_parameter("paint") as Texture2D).get_image()
+	# The shaft runs along the vertical center at rotation 0 and the horizontal center at 90.
+	assert_true(img0.get_pixel(24, 5).a > 0.25 and img0.get_pixel(24, 5).r > 0.3, "red shaft at rotation 0")
+	assert_true(img90.get_pixel(5, 24).a > 0.25 and img90.get_pixel(5, 24).r > 0.3, "red shaft at rotation 90")
+	assert_true(img90.get_pixel(24, 5).a < 0.25, "no shaft at the old position")
 
 
-## Cliff materials expose wall and trim, cached and repeating.
+## paint_image reads decal ramps ("0".."3") and absolute codes ("A".."L").
+func test_paint_image_codes() -> void:
+	var img := TextureFactory.paint_image([".1F", "L.."])
+	assert_eq(img.get_width(), 3, "width")
+	assert_true(img.get_pixel(0, 0).a < 0.25, "unpainted")
+	assert_near(img.get_pixel(1, 0).a, 0.5, 0.01, "decal texel")
+	assert_near(img.get_pixel(2, 0).g * 5.0, 5.0, 0.01, "F = gray level 5")
+	assert_near(img.get_pixel(0, 1).r * 3.0, 1.0, 0.01, "L = red ramp")
+	assert_near(img.get_pixel(0, 1).g * 5.0, 5.0, 0.01, "L = level 5")
+
+
+## Cliff materials expose wall, trim and wall_right, cached; trim looks like the wall.
 func test_cliff_materials_keys_and_cache() -> void:
 	_clear()
 	var m := TextureFactory.cliff_materials()
-	assert_true(m.has("wall") and m.has("trim"), "keys")
+	assert_true(m.has("wall") and m.has("trim") and m.has("wall_right"), "keys")
 	assert_true(m == TextureFactory.cliff_materials(), "cached dictionary")
-	assert_eq(m["wall"].albedo_texture.get_width(), 96, "stripe width")
-	assert_eq(m["wall"].albedo_texture.get_height(), 64, "stripe height")
+	assert_true(m["trim"] == m["wall"], "trim drawn like the wall")
+	assert_eq(m["wall_right"].get_shader_parameter("stripe_lit"), TextureFactory.WALL_CRIMSON, "crimson")
 
 
 ## Flag material is a cached double sided 64x48 texture.

@@ -115,3 +115,11 @@ func test_ray_dir_normalized() -> void:
 		assert_near(ray["dir"].length(), 1.0, 0.0001, "dir normalized")
 		assert_true(ray.has("origin"), "has origin")
 	rig.free()
+
+
+## The arcade view looks down at the 2:1 pitch of the reference: 30 degrees above the horizon.
+func test_arcade_pitch_is_two_to_one() -> void:
+	var rig := await _make_rig()
+	var forward := -rig.current_camera().global_transform.basis.z
+	assert_near(asin(-forward.y), ArcadeProjection.PITCH, 0.0001, "pitch 30 degrees")
+	rig.free()

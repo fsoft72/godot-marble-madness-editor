@@ -11,12 +11,6 @@ const KNOWN_DECALS: Array[String] = [
 	"arrow_shaft_only", "pad_456", "goal_banner",
 ]
 
-const STRIPE_W := 96
-const STRIPE_H := 64
-const STRIPE_COUNT := 3
-const SEAM_W := 4
-const RIM_H := 4
-
 const FLAG_W := 64
 const FLAG_H := 48
 const FLAG_COLS := 4
@@ -38,6 +32,27 @@ const GLYPHS := {
 const GLYPH_W := 5
 const GLYPH_H := 7
 
+## Texels per tile of the tile pattern (pixel centers of the 2:1 projection hit texel centers).
+const TILE_PATTERN_SIZE := 16
+## Tile pattern offsets taken from a flat tile of assets/level01_ref.png (0 fill, 1 edge, 2 line);
+## row = v (z), column = u (x).
+const TILE_PATTERN: Array[String] = [
+	"2222222222222222", "2212221222122222", "2111201120112122", "2111000100010112",
+	"2210000000000012", "2200000000000022", "2100000000000122", "2110000000000112",
+	"2210000000000012", "2200000000000022", "2100000000000122", "2110000000000112",
+	"2210000000000012", "2210001000100022", "2211021102110222", "2221222122212222",
+]
+## Texels per block side of the paint map (16 per tile).
+const PAINT_SIZE := 48
+const TOP_SHADER_PATH := "res://shaders/arcade_top.gdshader"
+const WALL_SHADER_PATH := "res://shaders/arcade_wall.gdshader"
+## Wall colors of the arcade palette (sRGB 0..255).
+const WALL_YELLOW := Vector3(204, 204, 0)
+const WALL_ORANGE := Vector3(204, 102, 0)
+const WALL_CRIMSON := Vector3(136, 34, 34)
+const WALL_SEAM_LIT := Vector3(102, 102, 102)
+const WALL_SEAM_DARK := Vector3(51, 51, 51)
+
 static var _cache := {}
 
 
@@ -46,33 +61,125 @@ static func clear_cache() -> void:
 	_cache.clear()
 
 
-## Returns the cached material for a 3x3 block top surface.
-## Vertex colors multiply the texture; unknown decals fall back to "none".
+## Returns the cached material for a 3x3 block top surface: the arcade palette shader
+## (shaders/arcade_top.gdshader) with the tile pattern and the decal as a paint map.
+## Vertex colors carry the shade level; unknown decals fall back to "none".
 ## decal_rotation is in degrees (multiples of 90).
-static func top_surface_material(decal: String, decal_rotation: int) -> StandardMaterial3D:
+static func top_surface_material(decal: String, decal_rotation: int) -> ShaderMaterial:
 	var decal_name := decal if decal in KNOWN_DECALS else DECAL_NONE
 	var key := "top_%s_%d" % [decal_name, decal_rotation]
 	if _cache.has(key): return _cache[key]
-	var img := Image.create(BASE_SIZE, BASE_SIZE, false, Image.FORMAT_RGBA8)
-	_draw_base_tiles(img)
-	_draw_decal_overlay(img, decal_name, decal_rotation)
-	var mat := _make_material(img, false)
-	mat.vertex_color_use_as_albedo = true
+	var layer := Image.create(BASE_SIZE, BASE_SIZE, false, Image.FORMAT_RGBA8)
+	if decal_name != DECAL_NONE:
+		_draw_decal(layer, decal_name)
+		_rotate_layer(layer, decal_rotation)
+	var mat := make_top_material(_paint_from_layer(layer))
 	_cache[key] = mat
 	return mat
 
 
-## Returns the cliff wall materials: "wall" (yellow, left), "trim" (orange with rim lip)
-## and "wall_right" (crimson, right). Cached.
+## Returns a new top surface shader material using a paint image (see paint_image()).
+static func make_top_material(paint: Image) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = _shader(TOP_SHADER_PATH)
+	mat.set_shader_parameter("pattern", tile_pattern_texture())
+	mat.set_shader_parameter("paint", ImageTexture.create_from_image(paint))
+	return mat
+
+
+## Returns the cached per tile offset pattern (0 fill, 1 edge, 2 line) as a texture,
+## TILE_PATTERN_SIZE texels per tile, R = offset / 3.
+static func tile_pattern_texture() -> ImageTexture:
+	if _cache.has("tile_pattern"): return _cache["tile_pattern"]
+	var img := Image.create(TILE_PATTERN_SIZE, TILE_PATTERN_SIZE, false, Image.FORMAT_RGBA8)
+	for y in TILE_PATTERN_SIZE:
+		var row: String = TILE_PATTERN[y]
+		for x in TILE_PATTERN_SIZE:
+			img.set_pixel(x, y, Color(int(row[x]) / 3.0, 0, 0, 1))
+	var tex := ImageTexture.create_from_image(img)
+	_cache["tile_pattern"] = tex
+	return tex
+
+
+## First character of the absolute paint codes: code = PAINT_CODE_BASE + ramp * 6 + level.
+const PAINT_CODE_BASE := "A"
+
+
+## Builds a paint image from rows of texel codes, one char per texel (row = v, column = u):
+## "." unpainted, "0".."3" decal ramp (tile pattern kept), "A".."L" absolute color
+## (PAINT_CODE_BASE + ramp * 6 + level, gray ramp 0 or red ramp 1).
+static func paint_image(rows: Array) -> Image:
+	var h := maxi(rows.size(), 1)
+	var w := 1
+	for row in rows: w = maxi(w, str(row).length())
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	for y in rows.size():
+		var row := str(rows[y])
+		for x in row.length():
+			var ch := row[x]
+			if ch >= "0" and ch <= "3":
+				img.set_pixel(x, y, Color(int(ch) / 3.0, 0, 0, 0.5))
+				continue
+			var code := ch.unicode_at(0) - PAINT_CODE_BASE.unicode_at(0)
+			if code < 0 or code >= 12: continue
+			img.set_pixel(x, y, Color((code / 6) / 3.0, (code % 6) / 5.0, 0, 1))
+	return img
+
+
+## Returns the cliff wall materials: "wall" and "trim" (yellow, orange in the shadow) and
+## "wall_right" (crimson). Cached. The trim is drawn like the wall: shadows come from the sun.
 static func cliff_materials() -> Dictionary:
 	if _cache.has("cliff_materials"): return _cache["cliff_materials"]
+	var yellow := _wall_material(WALL_YELLOW, WALL_SEAM_LIT, WALL_ORANGE, WALL_SEAM_DARK)
 	var mats := {
-		"wall": _stripe_material(Color("#d8dc24"), Color("#8e9212"), Color("#2e3004"), false),
-		"trim": _stripe_material(Color("#e07018"), Color("#b04e0c"), Color("#381804"), true),
-		"wall_right": _stripe_material(Color("#9e2016"), Color("#56100a"), Color("#240402"), false),
+		"wall": yellow,
+		"trim": yellow,
+		"wall_right": _wall_material(WALL_CRIMSON, WALL_SEAM_DARK, WALL_CRIMSON, WALL_SEAM_DARK),
 	}
 	_cache["cliff_materials"] = mats
 	return mats
+
+
+## Returns a wall shader material with the given stripe and seam colors (0..255 sRGB).
+static func _wall_material(stripe_lit: Vector3, seam_lit: Vector3, stripe_shadow: Vector3, seam_shadow: Vector3) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = _shader(WALL_SHADER_PATH)
+	mat.set_shader_parameter("stripe_lit", stripe_lit)
+	mat.set_shader_parameter("seam_lit", seam_lit)
+	mat.set_shader_parameter("stripe_shadow", stripe_shadow)
+	mat.set_shader_parameter("seam_shadow", seam_shadow)
+	return mat
+
+
+## Returns a cached shader resource.
+static func _shader(path: String) -> Shader:
+	if _cache.has(path): return _cache[path]
+	var shader := load(path) as Shader
+	_cache[path] = shader
+	return shader
+
+
+## Converts an RGBA decal layer into a paint image at PAINT_SIZE: red pixels become the red
+## ramp, gray pixels the gray ramp, transparent pixels stay unpainted.
+static func _paint_from_layer(layer: Image) -> Image:
+	var small := layer.duplicate() as Image
+	small.resize(PAINT_SIZE, PAINT_SIZE, Image.INTERPOLATE_NEAREST)
+	var img := Image.create(PAINT_SIZE, PAINT_SIZE, false, Image.FORMAT_RGBA8)
+	for y in PAINT_SIZE:
+		for x in PAINT_SIZE:
+			var c := small.get_pixel(x, y)
+			if c.a < 0.5: continue
+			var ramp := 1 if c.r > c.g + 0.2 else 0
+			img.set_pixel(x, y, Color(ramp / 3.0, 0, 0, 0.5))
+	return img
+
+
+## Rotates a decal layer counter-clockwise by decal_rotation degrees (JS canvas rotate(-angle)).
+static func _rotate_layer(layer: Image, decal_rotation: int) -> void:
+	var quarter_turns := posmod(roundi(decal_rotation / 90.0), 4)
+	if quarter_turns == 1: layer.rotate_90(COUNTERCLOCKWISE)
+	elif quarter_turns == 2: layer.rotate_180()
+	elif quarter_turns == 3: layer.rotate_90(CLOCKWISE)
 
 
 ## Returns the cached double sided checkered flag material.
@@ -99,54 +206,6 @@ static func _make_material(img: Image, repeat: bool) -> StandardMaterial3D:
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	mat.texture_repeat = repeat
 	return mat
-
-
-## Builds a repeating vertical stripe material (3 stripes, seam on each, optional top rim).
-static func _stripe_material(light: Color, dark: Color, seam: Color, top_rim: bool) -> StandardMaterial3D:
-	var img := Image.create(STRIPE_W, STRIPE_H, false, Image.FORMAT_RGBA8)
-	var stripe_w := STRIPE_W / STRIPE_COUNT
-	for s in STRIPE_COUNT:
-		var sx := s * stripe_w
-		_fill_rect(img, sx, 0, stripe_w, STRIPE_H, light if s % 2 == 0 else dark)
-		_fill_rect(img, sx + stripe_w - SEAM_W, 0, SEAM_W, STRIPE_H, seam)
-	if top_rim: _fill_rect(img, 0, 0, STRIPE_W, RIM_H, Color("#282010"))
-	return _make_material(img, true)
-
-
-## Draws the 3x3 arcade tile grid (neutral bright base so vertex colors can tint it).
-static func _draw_base_tiles(img: Image) -> void:
-	var tile := BASE_SIZE / TILE_COUNT
-	_fill_rect(img, 0, 0, BASE_SIZE, BASE_SIZE, Color("#f2f2f2"))
-	for r in TILE_COUNT:
-		for c in TILE_COUNT:
-			var x := c * tile
-			var y := r * tile
-			_fill_rect(img, x + 2, y + 2, tile - 4, tile - 4, Color("#f6f6f6") if (r + c) % 2 == 0 else Color("#eeeeee"))
-			var py := 6
-			while py < tile - 6:
-				var px := 6
-				while px < tile - 6:
-					if (px + py) % 16 == 0: _fill_rect(img, x + px, y + py, 2, 2, Color.WHITE)
-					px += 8
-				py += 8
-			_fill_rect(img, x + 2, y + 2, tile - 4, 2, Color.WHITE)
-			_fill_rect(img, x + 2, y + 2, 2, tile - 4, Color.WHITE)
-			_fill_rect(img, x + 2, y + tile - 4, tile - 4, 2, Color("#cccccc"))
-			_fill_rect(img, x + tile - 4, y + 2, 2, tile - 4, Color("#cccccc"))
-			_stroke_rect(img, x, y, tile, tile, 3, Color("#484848"))
-
-
-## Draws a decal on a transparent layer, rotates it counter-clockwise by decal_rotation
-## degrees (like the JS canvas rotate(-angle)) and blends it over the base image.
-static func _draw_decal_overlay(img: Image, decal: String, decal_rotation: int) -> void:
-	if decal == DECAL_NONE: return
-	var layer := Image.create(BASE_SIZE, BASE_SIZE, false, Image.FORMAT_RGBA8)
-	_draw_decal(layer, decal)
-	var quarter_turns := posmod(roundi(decal_rotation / 90.0), 4)
-	if quarter_turns == 1: layer.rotate_90(COUNTERCLOCKWISE)
-	elif quarter_turns == 2: layer.rotate_180()
-	elif quarter_turns == 3: layer.rotate_90(CLOCKWISE)
-	img.blend_rect(layer, Rect2i(0, 0, BASE_SIZE, BASE_SIZE), Vector2i.ZERO)
 
 
 ## Draws one unrotated decal onto a transparent layer.
