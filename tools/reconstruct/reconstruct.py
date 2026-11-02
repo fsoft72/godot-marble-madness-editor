@@ -17,8 +17,7 @@ from optimize import Fit, Grower  # noqa: E402
 from walls import votes  # noqa: E402
 from assemble import reference_classes, place, refine_groups  # noqa: E402
 from build_level import build, lattice_bounds  # noqa: E402
-from bake import bake  # noqa: E402
-from bake_walls import bake_walls  # noqa: E402
+from bake import bake, SHADOW_LEVEL  # noqa: E402
 from place_elements import place as place_elements  # noqa: E402
 from vertices import height, HS  # noqa: E402
 
@@ -87,8 +86,28 @@ def main():
     return 0
 
 
+def lit_levels(fit_tiles):
+    """Returns a copy of the fit tiles where tiles that are dark only because they lie in a
+    shadow of the reference (level <= SHADOW_LEVEL) get the median level of their lit lattice
+    neighbors (flat level 4 when there is none): the sun shadow darkens them at run time."""
+    out = {}
+    for key, (l0, l1, sp) in fit_tiles.items():
+        if max(l0, l1) > SHADOW_LEVEL:
+            out[key] = [l0, l1, sp]
+            continue
+        comp, k, m = key
+        near = []
+        for dk, dm in ((1, 1), (-1, 1), (1, -1), (-1, -1), (0, 2), (0, -2)):
+            n = fit_tiles.get((comp, k + dk, m + dm))
+            if n and max(n[0], n[1]) > SHADOW_LEVEL: near += [n[0], n[1]]
+        lev = int(sorted(near)[len(near) // 2]) if near else 4
+        out[key] = [lev, lev, sp]
+    return out
+
+
 def write_level(img, fit_tiles, verts, offsets, out_path, with_paint):
     """Chooses the height datum and the world origin, then writes the level JSON."""
+    fit_tiles = lit_levels(fit_tiles)
     # Height datum: the lowest vertex sits at height LOWEST_HEIGHT.
     comp_off = {}
     for (c, k, m), o in offsets.items(): comp_off.setdefault(c, o)
@@ -99,10 +118,6 @@ def write_level(img, fit_tiles, verts, offsets, out_path, with_paint):
     origin = (3 - min_x + (min_x % 3), 3 - min_z + (min_z % 3))
     paint = bake(img, fit_tiles, verts, offsets, sy0, origin) if with_paint else None
     level = build(fit_tiles, verts, offsets, sy0, origin, paint)
-    if with_paint:
-        for (bx, bz), rows in bake_walls(img, fit_tiles, verts, offsets, sy0, origin).items():
-            block = level['blocks'].get(f'{bx},{bz}')
-            if block is not None: block['wallShadow'] = rows
     s_ = (295.0 - sy0) / 4.0
     level['arcadeFocus'] = [round((s_ + 18.0) / 2 + origin[0], 6), 0.0, round((s_ - 18.0) / 2 + origin[1], 6)]
     place_elements(level)

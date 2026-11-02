@@ -86,17 +86,3 @@ func test_flag_material() -> void:
 	assert_eq(f.albedo_texture.get_width(), 64, "width")
 	assert_eq(f.albedo_texture.get_height(), 48, "height")
 
-
-## A baked wall shadow becomes a 24x3 depth interval texture on a yellow wall material.
-func test_baked_wall_material() -> void:
-	var rows := []
-	for r in 3:
-		var row := []
-		for x in 24: row.append([1.0, 2.5] if r == 1 else [-1.0, -1.0])
-		rows.append(row)
-	var mat := TextureFactory.make_baked_wall_material(rows)
-	assert_true(mat.get_shader_parameter("has_wall_shadow"), "baked flag")
-	var img: Image = (mat.get_shader_parameter("wall_shadow") as Texture2D).get_image()
-	assert_eq(img.get_width(), 24, "8 samples per unit over 3 units")
-	assert_near(img.get_pixel(3, 1).g * TextureFactory.WALL_SHADOW_RANGE, 2.5, 0.001, "interval end")
-	assert_true(img.get_pixel(3, 0).r < 0.0, "no data keeps the sun shadow")

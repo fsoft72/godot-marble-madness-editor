@@ -5,14 +5,15 @@ extends RefCounted
 const AMBIENT_ENERGY := 0.72
 const SUN_COLOR := Color("fffaf0")
 const SUN_ENERGY := 1.15
-## Sun from azimuth -60 and elevation 52 degrees: fitted to the shadows of the arcade reference
-## (tools/render_level.gd --sun search).
-const SUN_POSITION := Vector3(-26.659, 39.401, 15.392)
+## Sun from azimuth -60 and elevation 55 degrees: fitted to the reference with every shadow
+## coming from this light (tools/render_level.gd --sun search).
+const SUN_POSITION := Vector3(-24.837, 40.958, 14.339)
 const FILL_COLOR := Color("90a8ff")
 const FILL_ENERGY := 0.25
 const FILL_POSITION := Vector3(25.0, 20.0, -20.0)
-## Shadow range of the sun.
-const SHADOW_DISTANCE := 160.0
+## Shadow range of the sun: covers the whole level seen from the arcade camera
+## (ArcadeProjection.BACKOFF away from the focus).
+const SHADOW_DISTANCE := 400.0
 
 
 ## Adds black background, ambient light, the sun with shadows and the blue fill light to a parent.
@@ -30,6 +31,8 @@ static func add_to(parent: Node, sun_position: Vector3 = SUN_POSITION) -> void:
 	var sun := _make_light("Sun", SUN_COLOR, SUN_ENERGY, sun_position)
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = SHADOW_DISTANCE
+	# One orthogonal shadow map over the level: crisp, pixel art like shadow edges.
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.shadow_bias = 0.05
 	parent.add_child(sun)
 	var fill := _make_light("Fill", FILL_COLOR, FILL_ENERGY, FILL_POSITION)

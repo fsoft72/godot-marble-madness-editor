@@ -1,6 +1,9 @@
-"""Bakes the reference look of every visible tile pixel into per block paint maps
-(TextureFactory.paint_image codes): each pixel of the reference is stored in the texel the
-top shader samples for that pixel, so the arcade view shows exactly the reference colors."""
+"""Bakes the painted look (tile line pattern on slopes, decals) of every visible tile pixel of
+the reference into per block paint maps (TextureFactory.paint_image codes): each pixel is
+stored in the texel the top shader samples for that pixel.
+
+Shadows are not baked: pixels that are darker than the lit tile because they are in a shadow
+of the reference stay unpainted, so the shadow comes from the sun light at run time."""
 from collections import Counter, defaultdict
 
 import numpy as np
@@ -13,6 +16,8 @@ from vertices import height
 PAINT = 48
 TEX = 16
 CODE_BASE = ord('A')
+# Palette level of a surface in the shadow (shaders/arcade_top.gdshader shadow_level).
+SHADOW_LEVEL = 1
 
 
 def bake(img, fit_tiles, verts, offsets, sy0, origin):
@@ -50,6 +55,7 @@ def bake(img, fit_tiles, verts, offsets, sy0, origin):
         for y, xx, l, a, b in zip(ys, xs, lev, tx, ty):
             if owner.get((y, xx)) != i: continue
             if lv[y, xx] < 0: continue
+            if lv[y, xx] <= SHADOW_LEVEL and l > lv[y, xx]: continue
             code = CODE_BASE + ramp[y, xx] * 6 + lv[y, xx]
             votes[(bx, bz)][(r * TEX + b, c * TEX + a, code)] += 1
             if lv[y, xx] != l or ramp[y, xx] != 0: differs.add((bx, bz))
