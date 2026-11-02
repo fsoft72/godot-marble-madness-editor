@@ -73,13 +73,13 @@ static func top_surface_material(decal: String, decal_rotation: int) -> ShaderMa
 	if decal_name != DECAL_NONE:
 		_draw_decal(layer, decal_name)
 		_rotate_layer(layer, decal_rotation)
-	var mat := make_top_material(_paint_from_layer(layer))
+	var mat := _make_top_material(_paint_from_layer(layer))
 	_cache[key] = mat
 	return mat
 
 
-## Returns a new top surface shader material using a paint image (see paint_image()).
-static func make_top_material(paint: Image) -> ShaderMaterial:
+## Returns a new top surface shader material using a decal paint image (R = ramp / 3, A = 0.5).
+static func _make_top_material(paint: Image) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = _shader(TOP_SHADER_PATH)
 	mat.set_shader_parameter("pattern", tile_pattern_texture())
@@ -101,39 +101,12 @@ static func tile_pattern_texture() -> ImageTexture:
 	return tex
 
 
-## First character of the absolute paint codes: code = PAINT_CODE_BASE + ramp * 6 + level.
-const PAINT_CODE_BASE := "A"
-
-
-## Builds a paint image from rows of texel codes, one char per texel (row = v, column = u):
-## "." unpainted, "0".."3" decal ramp (tile pattern kept), "A".."L" absolute color
-## (PAINT_CODE_BASE + ramp * 6 + level, gray ramp 0 or red ramp 1).
-static func paint_image(rows: Array) -> Image:
-	var h := maxi(rows.size(), 1)
-	var w := 1
-	for row in rows: w = maxi(w, str(row).length())
-	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
-	for y in rows.size():
-		var row := str(rows[y])
-		for x in row.length():
-			var ch := row[x]
-			if ch >= "0" and ch <= "3":
-				img.set_pixel(x, y, Color(int(ch) / 3.0, 0, 0, 0.5))
-				continue
-			var code := ch.unicode_at(0) - PAINT_CODE_BASE.unicode_at(0)
-			if code < 0 or code >= 12: continue
-			img.set_pixel(x, y, Color((code / 6) / 3.0, (code % 6) / 5.0, 0, 1))
-	return img
-
-
-## Returns the cliff wall materials: "wall" and "trim" (yellow, orange in the shadow) and
-## "wall_right" (crimson). Cached. The trim is drawn like the wall: shadows come from the sun.
+## Returns the cliff wall materials: "wall" (yellow, orange in the sun shadow) and
+## "wall_right" (crimson). Cached.
 static func cliff_materials() -> Dictionary:
 	if _cache.has("cliff_materials"): return _cache["cliff_materials"]
-	var yellow := _wall_material(WALL_YELLOW, WALL_SEAM_LIT, WALL_ORANGE, WALL_SEAM_DARK)
 	var mats := {
-		"wall": yellow,
-		"trim": yellow,
+		"wall": _wall_material(WALL_YELLOW, WALL_SEAM_LIT, WALL_ORANGE, WALL_SEAM_DARK),
 		"wall_right": _wall_material(WALL_CRIMSON, WALL_SEAM_DARK, WALL_CRIMSON, WALL_SEAM_DARK),
 	}
 	_cache["cliff_materials"] = mats

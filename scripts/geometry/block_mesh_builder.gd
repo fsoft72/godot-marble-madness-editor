@@ -9,28 +9,20 @@ extends RefCounted
 ## Winding: the JS code emits counter-clockwise triangles (Three.js). Godot treats clockwise as
 ## front, so every triangle is emitted with its last two vertices swapped. Normals keep the JS values.
 ##
-## Surfaces are named, top first when present, then trim, wall, wall_right (empty ones are skipped).
+## Surfaces are named, top first when present, then wall, wall_right (empty ones are skipped).
 ## Use SURFACE_TOP etc. with ArrayMesh.surface_find_by_name() to tell them apart.
 
 const SURFACE_TOP := "top"
-const SURFACE_TRIM := "trim"
 const SURFACE_WALL := "wall"
 const SURFACE_WALL_RIGHT := "wall_right"
 ## Surface emission order, which is also the order of the collision triangles.
-const SURFACE_ORDER: Array[String] = [SURFACE_TOP, SURFACE_TRIM, SURFACE_WALL, SURFACE_WALL_RIGHT]
+const SURFACE_ORDER: Array[String] = [SURFACE_TOP, SURFACE_WALL, SURFACE_WALL_RIGHT]
 
 const HALF := Constants.BLOCK_SIZE / 2.0
 ## Tiles per block side.
 const GRID := 3
 ## Default steps for pit_stepped, indexed [row][col]; NAN means no sub-tile.
 const DEFAULT_STEPS := [[0.0, 0.0, -1.2], [0.0, 0.0, -2.2], [-1.2, -2.2, NAN]]
-## Light direction of the automatic shading (normalized in _light_dir()).
-const LIGHT_DIR_RAW := Vector3(-0.45, 0.75, -0.48)
-const SHADE_THRESH_WHITE := 0.82
-const SHADE_THRESH_FLAT := 0.68
-const SHADE_THRESH_MID := 0.52
-## Normal x/z components below this count as a flat triangle.
-const FLAT_NORMAL_EPS := 0.04
 
 
 ## Triangle soup with per-vertex attributes for one surface.
@@ -70,10 +62,16 @@ static func build(block: Dictionary) -> ArrayMesh:
 	return mesh
 
 
-## Returns the vertex color of a shade multiplier: R = palette level / 5 (read by the top shader).
+## Shade value of a triangle without an explicit shade: the top shader lights it with the sun.
+const SHADE_AUTO := -1.0
+
+
+## Returns the vertex color of a shade multiplier: R = palette level / 5, A = 1 (explicit level
+## for the top shader). SHADE_AUTO gives A = 0: the shader takes the level from the sun light.
 static func shade_color(shade: float) -> Color:
+	if shade == SHADE_AUTO: return Color(0, 0, 0, 0)
 	var level := Constants.shade_level(shade) / 5.0
-	return Color(level, level, level)
+	return Color(level, level, level, 1)
 
 
 ## Returns the triangle soup (all surfaces, in surface order) for a ConcavePolygonShape3D.
@@ -109,9 +107,6 @@ static func build_parts(block: Dictionary) -> Dictionary:
 ## Returns the material of a surface for the block (top depends on decal and rotation).
 static func _material_for(surface_name: String, block: Dictionary) -> Material:
 	if surface_name == SURFACE_TOP:
-		var paint: Variant = block.get("paint")
-		if paint is Array and not paint.is_empty():
-			return TextureFactory.make_top_material(TextureFactory.paint_image(paint))
 		return TextureFactory.top_surface_material(str(block.get("decal", "none")), int(_num(block.get("decalRotation"))))
 	return TextureFactory.cliff_materials()[surface_name]
 
@@ -122,13 +117,9 @@ static func _num(value: Variant, fallback: float = 0.0) -> float:
 	return fallback
 
 
-## Normalized light direction of the automatic shading.
-static func _light_dir() -> Vector3:
-	return LIGHT_DIR_RAW.normalized()
-
-
-## Returns the shade color value of a top triangle (port of getSubtileTriangleShade).
-static func _triangle_shade(block: Dictionary, r: int, c: int, upper_left: bool, normal: Vector3) -> float:
+## Returns the explicit shade of a top triangle (subShades, then shade presets, port of
+## getSubtileTriangleShade), or SHADE_AUTO when the sun light decides.
+static func _triangle_shade(block: Dictionary, r: int, c: int, upper_left: bool) -> float:
 	var shade: Dictionary = Constants.SHADE
 	var sub_shades: Variant = block.get("subShades")
 	if sub_shades is Array and r < sub_shades.size() and sub_shades[r] is Array and c < sub_shades[r].size():
@@ -163,18 +154,14 @@ static func _triangle_shade(block: Dictionary, r: int, c: int, upper_left: bool,
 			return shade["DARK"]
 		"wing_white":
 			return shade["WHITE"]
-	if absf(normal.x) < FLAT_NORMAL_EPS and absf(normal.z) < FLAT_NORMAL_EPS: return shade["FLAT"]
-	var d := normal.dot(_light_dir())
-	if d > SHADE_THRESH_WHITE: return shade["WHITE"]
-	if d > SHADE_THRESH_FLAT: return shade["FLAT"]
-	if d > SHADE_THRESH_MID: return shade["MID"]
-	return shade["DARK"]
+	return SHADE_AUTO
 
 
 ## Adds one top triangle (JS vertex order) with its shade and face normal.
-static func _push_top_triangle(block: Dictionary, part: Part, p: Array, uv: Array, r: int, c: int, upper_left: bool) -> void:
-	var n: Vector3 = (p[1] - p[0]).cross(p[2] - p[0]).normalized()
-	var s := _triangle_shade(block, r, c, upper_left, n)
+## normal: lighting normal; Vector3.ZERO uses the triangle face normal.
+static func _push_top_triangle(block: Dictionary, part: Part, p: Array, uv: Array, r: int, c: int, upper_left: bool, normal: Vector3 = Vector3.ZERO) -> void:
+	var n: Vector3 = (p[1] - p[0]).cross(p[2] - p[0]).normalized() if normal == Vector3.ZERO else normal
+	var s := _triangle_shade(block, r, c, upper_left)
 	part.add_triangle(p, n, uv, shade_color(s))
 
 
@@ -242,29 +229,24 @@ static func _top_uv(u: int, v: int) -> Vector2:
 	return Vector2(u / 3.0, v / 3.0)
 
 
-## Adds the perimeter cliff walls, honoring cutouts and cliffShadow.
+## Adds the perimeter cliff walls, honoring cutouts.
 static func _add_perimeter_walls(block: Dictionary, parts: Dictionary) -> void:
 	var cutout := str(block.get("cutout", ""))
-	var shadow: Array = [Constants.DEFAULT_TRIM_HEIGHT, Constants.DEFAULT_TRIM_HEIGHT, Constants.DEFAULT_TRIM_HEIGHT, Constants.DEFAULT_TRIM_HEIGHT]
-	var cliff_shadow: Variant = block.get("cliffShadow")
-	if cliff_shadow is Array and cliff_shadow.size() == 4:
-		for i in 4:
-			shadow[i] = _num(cliff_shadow[i])
 	for i in GRID:
 		var a := i
 		var b := i + 1
 		if cutout != "wing_right":
-			# Front-left wall (v = 3), normal +Z, with variable trim depth.
-			_add_wall_with_trim(parts, true, Vector3(a, BlockSurface.surface_y(block, a, 3), 3), Vector3(b, BlockSurface.surface_y(block, b, 3), 3), a, b, shadow[i], shadow[i + 1])
+			# Front-left wall (v = 3), normal +Z.
+			_add_wall(parts, true, Vector3(a, BlockSurface.surface_y(block, a, 3), 3), Vector3(b, BlockSurface.surface_y(block, b, 3), 3), a, b)
 		if cutout != "wing_left":
 			# Back-right wall (v = 0), normal -Z.
-			_add_wall_with_trim(parts, true, Vector3(b, BlockSurface.surface_y(block, b, 0), 0), Vector3(a, BlockSurface.surface_y(block, a, 0), 0), a, b)
+			_add_wall(parts, true, Vector3(b, BlockSurface.surface_y(block, b, 0), 0), Vector3(a, BlockSurface.surface_y(block, a, 0), 0), a, b)
 		if cutout != "wing_right":
 			# Front-right wall (u = 3), normal +X.
-			_add_wall_with_trim(parts, false, Vector3(3, BlockSurface.surface_y(block, 3, b), b), Vector3(3, BlockSurface.surface_y(block, 3, a), a), a, b)
+			_add_wall(parts, false, Vector3(3, BlockSurface.surface_y(block, 3, b), b), Vector3(3, BlockSurface.surface_y(block, 3, a), a), a, b)
 		if cutout != "wing_left":
 			# Back-left wall (u = 0), normal -X.
-			_add_wall_with_trim(parts, false, Vector3(0, BlockSurface.surface_y(block, 0, a), a), Vector3(0, BlockSurface.surface_y(block, 0, b), b), a, b)
+			_add_wall(parts, false, Vector3(0, BlockSurface.surface_y(block, 0, a), a), Vector3(0, BlockSurface.surface_y(block, 0, b), b), a, b)
 
 
 ## Height difference below which two tile edges count as joined (no wall between them).
@@ -288,12 +270,16 @@ static func _add_tiles(block: Dictionary, tiles: Array, parts: Dictionary) -> vo
 			var uv01 := _top_uv(c, r + 1)
 			var uv11 := _top_uv(c + 1, r + 1)
 			var part: Part = parts[SURFACE_TOP]
+			# One lighting normal per tile (the arcade draws a tile in one shade): the normal of
+			# the plane through the tile diagonals.
+			var n := (p11 - p00).cross(p10 - p01).normalized()
+			if n.y < 0.0: n = -n
 			if BlockSurface.tile_split(block, c, r) == "anti":
-				_push_top_triangle(block, part, [p00, p01, p10], [uv00, uv01, uv10], r, c, true)
-				_push_top_triangle(block, part, [p10, p01, p11], [uv10, uv01, uv11], r, c, false)
+				_push_top_triangle(block, part, [p00, p01, p10], [uv00, uv01, uv10], r, c, true, n)
+				_push_top_triangle(block, part, [p10, p01, p11], [uv10, uv01, uv11], r, c, false, n)
 			else:
-				_push_top_triangle(block, part, [p00, p01, p11], [uv00, uv01, uv11], r, c, true)
-				_push_top_triangle(block, part, [p00, p11, p10], [uv00, uv11, uv10], r, c, false)
+				_push_top_triangle(block, part, [p00, p01, p11], [uv00, uv01, uv11], r, c, true, n)
+				_push_top_triangle(block, part, [p00, p11, p10], [uv00, uv11, uv10], r, c, false, n)
 			_add_tile_walls(tiles, parts, c, r, h, p00, p10, p01, p11)
 
 
@@ -302,16 +288,16 @@ static func _add_tiles(block: Dictionary, tiles: Array, parts: Dictionary) -> vo
 static func _add_tile_walls(tiles: Array, parts: Dictionary, c: int, r: int, h: Array, p00: Vector3, p10: Vector3, p01: Vector3, p11: Vector3) -> void:
 	# Front-left edge (v = r + 1), normal +Z: joined to the next row's h00, h10.
 	if not _joined(BlockSurface.tile_corners(tiles, c, r + 1), [0, 1], [h[2], h[3]]):
-		_add_wall_with_trim(parts, true, p01, p11, c, c + 1)
+		_add_wall(parts, true, p01, p11, c, c + 1)
 	# Back-right edge (v = r), normal -Z: joined to the previous row's h01, h11.
 	if not _joined(BlockSurface.tile_corners(tiles, c, r - 1), [2, 3], [h[0], h[1]]):
-		_add_wall_with_trim(parts, true, p10, p00, c, c + 1)
+		_add_wall(parts, true, p10, p00, c, c + 1)
 	# Front-right edge (u = c + 1), normal +X: joined to the next column's h00, h01.
 	if not _joined(BlockSurface.tile_corners(tiles, c + 1, r), [0, 2], [h[1], h[3]]):
-		_add_wall_with_trim(parts, false, p11, p10, r, r + 1)
+		_add_wall(parts, false, p11, p10, r, r + 1)
 	# Back-left edge (u = c), normal -X: joined to the previous column's h10, h11.
 	if not _joined(BlockSurface.tile_corners(tiles, c - 1, r), [1, 3], [h[0], h[2]]):
-		_add_wall_with_trim(parts, false, p00, p01, r, r + 1)
+		_add_wall(parts, false, p00, p01, r, r + 1)
 
 
 ## Returns whether the neighbor corners n[idx[0]], n[idx[1]] equal the edge offsets `edge`.
@@ -361,31 +347,26 @@ static func _add_stepped_tile(parts: Dictionary, c: int, r: int, y: float) -> vo
 	var u1 := (c + 1) / 3.0
 	var v0 := r / 3.0
 	var v1 := (r + 1) / 3.0
-	var color := shade_color(Constants.SHADE["FLAT"])
+	var color := shade_color(SHADE_AUTO)
 	part.add_triangle([Vector3(x0, y, z0), Vector3(x0, y, z1), Vector3(x1, y, z1)], Vector3.UP, [Vector2(u0, v0), Vector2(u0, v1), Vector2(u1, v1)], color)
 	part.add_triangle([Vector3(x0, y, z0), Vector3(x1, y, z1), Vector3(x1, y, z0)], Vector3.UP, [Vector2(u0, v0), Vector2(u1, v1), Vector2(u1, v0)], color)
-	_add_wall_with_trim(parts, true, Vector3(x0, y, z1), Vector3(x1, y, z1), c, c + 1)
-	_add_wall_with_trim(parts, true, Vector3(x1, y, z0), Vector3(x0, y, z0), c, c + 1)
-	_add_wall_with_trim(parts, false, Vector3(x1, y, z1), Vector3(x1, y, z0), r, r + 1)
-	_add_wall_with_trim(parts, false, Vector3(x0, y, z0), Vector3(x0, y, z1), r, r + 1)
+	_add_wall(parts, true, Vector3(x0, y, z1), Vector3(x1, y, z1), c, c + 1)
+	_add_wall(parts, true, Vector3(x1, y, z0), Vector3(x0, y, z0), c, c + 1)
+	_add_wall(parts, false, Vector3(x1, y, z1), Vector3(x1, y, z0), r, r + 1)
+	_add_wall(parts, false, Vector3(x0, y, z0), Vector3(x0, y, z1), r, r + 1)
 
 
 ## Adds a cliff wall from top edge p0 -> p1 down to PILLAR_BOTTOM (port of addCliffWallWithTrim).
-## With_trim walls (yellow) get an orange trim band on top; the others (crimson) have none.
-static func _add_wall_with_trim(parts: Dictionary, with_trim: bool, p0: Vector3, p1: Vector3, u0: float, u1: float, trim0: float = Constants.DEFAULT_TRIM_HEIGHT, trim1: float = Constants.DEFAULT_TRIM_HEIGHT) -> void:
+## Yellow walls (+Z and -Z normals) go to the "wall" surface, crimson walls to "wall_right";
+## the orange of the yellow walls is the sun shadow.
+static func _add_wall(parts: Dictionary, yellow: bool, p0: Vector3, p1: Vector3, u0: float, u1: float) -> void:
 	var dx := p1.x - p0.x
 	var dz := p1.z - p0.z
 	var length := Vector2(dx, dz).length()
 	if length == 0.0: length = 1.0
 	var n := Vector3(-dz / length, 0.0, dx / length)
 	var bottom := Constants.PILLAR_BOTTOM
-	if with_trim:
-		var mid0 := p0.y - trim0
-		var mid1 := p1.y - trim1
-		_push_wall_quad(parts[SURFACE_TRIM], n, p0, p1, p0.y, p1.y, mid0, mid1, u0, u1)
-		_push_wall_quad(parts[SURFACE_WALL], n, p0, p1, mid0, mid1, bottom, bottom, u0, u1)
-	else:
-		_push_wall_quad(parts[SURFACE_WALL_RIGHT], n, p0, p1, p0.y, p1.y, bottom, bottom, u0, u1)
+	_push_wall_quad(parts[SURFACE_WALL if yellow else SURFACE_WALL_RIGHT], n, p0, p1, p0.y, p1.y, bottom, bottom, u0, u1)
 
 
 ## Pushes a wall quad (two triangles). V is 0 at the top edge and 1 at the bottom edge

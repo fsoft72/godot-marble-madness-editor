@@ -17,7 +17,6 @@ from optimize import Fit, Grower  # noqa: E402
 from walls import votes  # noqa: E402
 from assemble import reference_classes, place, refine_groups  # noqa: E402
 from build_level import build, lattice_bounds  # noqa: E402
-from bake import bake, SHADOW_LEVEL  # noqa: E402
 from place_elements import place as place_elements  # noqa: E402
 from vertices import height, HS  # noqa: E402
 
@@ -66,7 +65,6 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=os.path.join(ROOT, 'data', 'level01.json'))
     ap.add_argument('--cache')
-    ap.add_argument('--no-paint', action='store_true', help='do not bake the reference look')
     args = ap.parse_args()
     img = load_logical(REF)
     if args.cache and os.path.exists(args.cache):
@@ -82,32 +80,13 @@ def main():
     offsets = place(fit_tiles, verts, ref_cls, sy0, root, votes(cells, cell_labels, img))
     if args.cache: pickle.dump(offsets, open(args.cache + '.offsets', 'wb'))
     offsets = refine_groups(fit_tiles, verts, ref_cls, offsets, sy0)
-    write_level(img, fit_tiles, verts, offsets, args.out, not args.no_paint)
+    write_level(fit_tiles, verts, offsets, args.out)
     return 0
 
 
-def lit_levels(fit_tiles):
-    """Returns a copy of the fit tiles where tiles that are dark only because they lie in a
-    shadow of the reference (level <= SHADOW_LEVEL) get the median level of their lit lattice
-    neighbors (flat level 4 when there is none): the sun shadow darkens them at run time."""
-    out = {}
-    for key, (l0, l1, sp) in fit_tiles.items():
-        if max(l0, l1) > SHADOW_LEVEL:
-            out[key] = [l0, l1, sp]
-            continue
-        comp, k, m = key
-        near = []
-        for dk, dm in ((1, 1), (-1, 1), (1, -1), (-1, -1), (0, 2), (0, -2)):
-            n = fit_tiles.get((comp, k + dk, m + dm))
-            if n and max(n[0], n[1]) > SHADOW_LEVEL: near += [n[0], n[1]]
-        lev = int(sorted(near)[len(near) // 2]) if near else 4
-        out[key] = [lev, lev, sp]
-    return out
-
-
-def write_level(img, fit_tiles, verts, offsets, out_path, with_paint):
-    """Chooses the height datum and the world origin, then writes the level JSON."""
-    fit_tiles = lit_levels(fit_tiles)
+def write_level(fit_tiles, verts, offsets, out_path):
+    """Chooses the height datum and the world origin, then writes the level JSON (geometry and
+    elements only: shades and shadows come from the sun light in the game)."""
     # Height datum: the lowest vertex sits at height LOWEST_HEIGHT.
     comp_off = {}
     for (c, k, m), o in offsets.items(): comp_off.setdefault(c, o)
@@ -116,8 +95,7 @@ def write_level(img, fit_tiles, verts, offsets, out_path, with_paint):
     min_x, min_z, max_x, max_z = lattice_bounds(fit_tiles, offsets)
     # Origin: one free block row around the tiles, aligned so lattice tiles fall on whole blocks.
     origin = (3 - min_x + (min_x % 3), 3 - min_z + (min_z % 3))
-    paint = bake(img, fit_tiles, verts, offsets, sy0, origin) if with_paint else None
-    level = build(fit_tiles, verts, offsets, sy0, origin, paint)
+    level = build(fit_tiles, verts, offsets, sy0, origin)
     s_ = (295.0 - sy0) / 4.0
     level['arcadeFocus'] = [round((s_ + 18.0) / 2 + origin[0], 6), 0.0, round((s_ - 18.0) / 2 + origin[1], 6)]
     place_elements(level)

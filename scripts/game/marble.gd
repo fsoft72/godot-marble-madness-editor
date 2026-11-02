@@ -15,7 +15,7 @@ const FRICTION := 0.9
 const BOUNCE := 0.2
 const MAX_CONTACTS := 4
 
-## Height above the floor below which the contact shadow and caustic are shown.
+## Height above the floor below which the caustic is shown.
 const CONTACT_RANGE := 3.0
 const CAUSTIC_SHADER_PATH := "res://shaders/marble_caustic.gdshader"
 
@@ -24,7 +24,7 @@ var steer_direction := Vector3.ZERO
 
 ## Position to teleport to on the next physics step; INF when none is pending.
 var _pending_position := Vector3.INF
-## Floor decals that do not turn with the marble: contact shadow and caustic.
+## Caustic on the floor; it does not turn with the marble.
 var _contact: Node3D
 
 
@@ -51,26 +51,11 @@ func _init(color_value: Variant = null) -> void:
 	add_child(_contact)
 
 
-## Builds the top level node with the contact shadow disc and the caustic quad.
+## Builds the top level node with the caustic quad.
 func _make_contact(color: Color) -> Node3D:
 	var node := Node3D.new()
 	node.name = "Contact"
 	node.top_level = true
-	var shadow_mesh := CylinderMesh.new()
-	shadow_mesh.top_radius = RADIUS * 0.8
-	shadow_mesh.bottom_radius = RADIUS * 0.8
-	shadow_mesh.height = 0.001
-	shadow_mesh.radial_segments = 24
-	var shadow_mat := StandardMaterial3D.new()
-	shadow_mat.albedo_color = Color(0.05, 0.05, 0.05, 0.45)
-	shadow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	shadow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	var shadow := MeshInstance3D.new()
-	shadow.name = "ContactShadow"
-	shadow.mesh = shadow_mesh
-	shadow.material_override = shadow_mat
-	shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	node.add_child(shadow)
 	var quad := QuadMesh.new()
 	quad.size = Vector2(RADIUS * 2.2, RADIUS * 2.2)
 	quad.orientation = PlaneMesh.FACE_Y
@@ -86,8 +71,8 @@ func _make_contact(color: Color) -> Node3D:
 	return node
 
 
-## Puts the contact shadow under the marble and the caustic on the side away from the sun,
-## on the floor found by a ray cast; hides both in the air.
+## Puts the caustic on the floor found by a ray cast, on the side away from the sun; hides it
+## in the air.
 func _place_contact() -> void:
 	if not is_inside_tree(): return
 	var from := global_position

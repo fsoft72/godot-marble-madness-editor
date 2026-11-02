@@ -6,8 +6,6 @@ extends RefCounted
 const BLOCK_SIZE := 3.0
 ## Y coordinate of the bottom of pillars.
 const PILLAR_BOTTOM := -75.0
-## Default trim height.
-const DEFAULT_TRIM_HEIGHT := 0.78
 ## Default grid size (tiles per side).
 const DEFAULT_GRID := 14
 
@@ -17,9 +15,6 @@ const SHADE := {"WHITE": 0.99, "LIGHT": 0.86, "FLAT": 0.75, "MID": 0.52, "DARK":
 ## Shade multiplier of each arcade palette level (0 darkest .. 5 white). A triangle shade is
 ## drawn with the nearest level: DARK = 2, MID = 3, FLAT = 4, WHITE = 5.
 const SHADE_LEVELS: Array[float] = [0.2, 0.27, 0.35, 0.52, 0.75, 0.99]
-
-## Render layer of the block meshes: only the sun lights them (the fill light skips this layer).
-const BLOCK_RENDER_LAYER := 2
 
 ## Available tile shape ids.
 const SHAPE_IDS: Array[String] = [

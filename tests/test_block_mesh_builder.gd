@@ -122,7 +122,7 @@ func test_top_faces_point_up() -> void:
 func test_walls_face_outward() -> void:
 	var mesh := BlockMeshBuilder.build(BlockData.make(0, 0, {}))
 	var checked := {"z_pos": false, "z_neg": false, "x_pos": false, "x_neg": false}
-	for surface_name in [BlockMeshBuilder.SURFACE_WALL, BlockMeshBuilder.SURFACE_WALL_RIGHT, BlockMeshBuilder.SURFACE_TRIM]:
+	for surface_name in [BlockMeshBuilder.SURFACE_WALL, BlockMeshBuilder.SURFACE_WALL_RIGHT]:
 		var v := _verts(mesh, surface_name)
 		assert_true(v.size() > 0, "%s exists" % surface_name)
 		for i in range(0, v.size(), 3):
@@ -138,20 +138,17 @@ func test_walls_face_outward() -> void:
 		assert_true(checked[key], "found wall facing %s" % key)
 
 
-## Wall geometry reaches PILLAR_BOTTOM and the trim is DEFAULT_TRIM_HEIGHT tall.
-func test_wall_extent_and_trim_height() -> void:
+## A wall runs from the top edge down to PILLAR_BOTTOM in one piece (no trim band).
+func test_wall_extent() -> void:
 	var mesh := BlockMeshBuilder.build(BlockData.make(0, 0, {"elevation": 10.0}))
 	var wall_min := 1e9
+	var wall_max := -1e9
 	for p in _verts(mesh, BlockMeshBuilder.SURFACE_WALL):
 		wall_min = minf(wall_min, p.y)
+		wall_max = maxf(wall_max, p.y)
 	assert_near(wall_min, Constants.PILLAR_BOTTOM, EPS, "wall bottom")
-	var trim_min := 1e9
-	var trim_max := -1e9
-	for p in _verts(mesh, BlockMeshBuilder.SURFACE_TRIM):
-		trim_min = minf(trim_min, p.y)
-		trim_max = maxf(trim_max, p.y)
-	assert_near(trim_max, 10.0, EPS, "trim top")
-	assert_near(trim_min, 10.0 - Constants.DEFAULT_TRIM_HEIGHT, EPS, "trim bottom")
+	assert_near(wall_max, 10.0, EPS, "wall top")
+	assert_eq(mesh.surface_find_by_name("trim"), -1, "no trim surface")
 
 
 ## Top UVs: local (0,0) is the image top-left, (0,3) bottom-left, (3,0) top-right (no mirroring).
@@ -171,14 +168,16 @@ func test_top_uv_orientation() -> void:
 	assert_true(seen > 0, "bottom-left corner present")
 
 
-## Automatic shading: flat blocks are FLAT, presets and sub-tiles follow the JS values.
+## Shading: without an explicit shade the sun decides (alpha 0); presets and sub-tiles follow
+## the JS values (alpha 1).
 func test_vertex_shades() -> void:
 	var flat: PackedColorArray = _attr(BlockMeshBuilder.build(BlockData.make(0, 0, {})), BlockMeshBuilder.SURFACE_TOP, Mesh.ARRAY_COLOR)
 	for c in flat:
-		assert_near(c.r, BlockMeshBuilder.shade_color(Constants.SHADE["FLAT"]).r, COLOR_EPS, "flat shade")
+		assert_near(c.a, 0.0, COLOR_EPS, "lit by the sun")
 	var leg: PackedColorArray = _attr(BlockMeshBuilder.build(_shaped("chute_leg_x")), BlockMeshBuilder.SURFACE_TOP, Mesh.ARRAY_COLOR)
 	for c in leg:
 		assert_near(c.r, BlockMeshBuilder.shade_color(Constants.SHADE["WHITE"]).r, COLOR_EPS, "leg shade")
+		assert_near(c.a, 1.0, COLOR_EPS, "explicit")
 	var explicit := BlockData.make(0, 0, {"subShades": [[0.1, 0.1, 0.1], [0.1, 0.1, 0.1], [0.1, 0.1, 0.1]]})
 	var forced: PackedColorArray = _attr(BlockMeshBuilder.build(explicit), BlockMeshBuilder.SURFACE_TOP, Mesh.ARRAY_COLOR)
 	for c in forced:

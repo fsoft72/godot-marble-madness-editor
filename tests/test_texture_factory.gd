@@ -56,24 +56,12 @@ func test_decal_rotation_changes_paint() -> void:
 	assert_true(img90.get_pixel(24, 5).a < 0.25, "no shaft at the old position")
 
 
-## paint_image reads decal ramps ("0".."3") and absolute codes ("A".."L").
-func test_paint_image_codes() -> void:
-	var img := TextureFactory.paint_image([".1F", "L.."])
-	assert_eq(img.get_width(), 3, "width")
-	assert_true(img.get_pixel(0, 0).a < 0.25, "unpainted")
-	assert_near(img.get_pixel(1, 0).a, 0.5, 0.01, "decal texel")
-	assert_near(img.get_pixel(2, 0).g * 5.0, 5.0, 0.01, "F = gray level 5")
-	assert_near(img.get_pixel(0, 1).r * 3.0, 1.0, 0.01, "L = red ramp")
-	assert_near(img.get_pixel(0, 1).g * 5.0, 5.0, 0.01, "L = level 5")
-
-
-## Cliff materials expose wall, trim and wall_right, cached; trim looks like the wall.
+## Cliff materials expose wall and wall_right, cached.
 func test_cliff_materials_keys_and_cache() -> void:
 	_clear()
 	var m := TextureFactory.cliff_materials()
-	assert_true(m.has("wall") and m.has("trim") and m.has("wall_right"), "keys")
+	assert_true(m.has("wall") and m.has("wall_right") and not m.has("trim"), "keys")
 	assert_true(m == TextureFactory.cliff_materials(), "cached dictionary")
-	assert_true(m["trim"] == m["wall"], "trim drawn like the wall")
 	assert_eq(m["wall_right"].get_shader_parameter("stripe_lit"), TextureFactory.WALL_CRIMSON, "crimson")
 
 

@@ -16,6 +16,7 @@ const FLAG_WIDTH := 1.2
 const FLAG_HEIGHT := 1.1
 const ROUND_SEGMENTS := 12
 const GLASS_SHADER_PATH := "res://shaders/glass_marble.gdshader"
+const SHADOW_CASTER_NAME := "ShadowCaster"
 ## Height of the invisible copy of a tube collider that stops the marble climbing over the rail.
 const TUBE_COLLISION_LIFT := 0.5
 const CONE_NAME := "Cone"
@@ -61,7 +62,7 @@ static func collision_faces(element: Node3D, block: Dictionary) -> PackedVector3
 	return faces
 
 
-## Returns a new marble visual centered on its origin, without its floor shadow.
+## Returns a new marble visual centered on its origin.
 static func make_rolling_marble(color_value: Variant) -> Node3D:
 	var root := Node3D.new()
 	_build_marble(root, {"marbleColor": color_value}, 0.0)
@@ -69,9 +70,6 @@ static func make_rolling_marble(color_value: Variant) -> Node3D:
 	root.remove_child(marble)
 	root.free()
 	marble.position = Vector3.ZERO
-	var shadow := marble.get_node("MarbleShadow")
-	marble.remove_child(shadow)
-	shadow.free()
 	return marble
 
 
@@ -224,9 +222,6 @@ static func _add_mesh(parent: Node3D, mesh: Mesh, mat: Material, pos: Vector3) -
 	inst.mesh = mesh
 	inst.material_override = mat
 	inst.position = pos
-	# Toon shaded parts are lit by the sun only, like the blocks (the fill light skips them).
-	if mat is ShaderMaterial and (mat as ShaderMaterial).shader.resource_path == TOON_SHADER_PATH:
-		inst.layers = Constants.BLOCK_RENDER_LAYER
 	parent.add_child(inst)
 	return inst
 
@@ -261,7 +256,7 @@ static func _flat_shaded(source: Mesh) -> ArrayMesh:
 	return mesh
 
 
-## Adds the four sided pyramid and its flat floor shadow.
+## Adds the four sided pyramid (its shadow comes from the sun).
 static func _build_cone(root: Node3D, block: Dictionary, rot: float, is_large: bool) -> void:
 	var radius := 1.18 if is_large else 0.72
 	var height := 1.85 if is_large else 1.18
@@ -292,36 +287,7 @@ static func _build_cone(root: Node3D, block: Dictionary, rot: float, is_large: b
 	var cone := _add_mesh(root, _flat_shaded(source), mat, Vector3(cu, base_y + height * 0.5, cv))
 	cone.name = CONE_NAME
 	cone.rotation.y = PI / 4.0 + deg_to_rad(rot)
-	if shape == "pit" or block.has("coneSize"): return
-	_add_cone_shadow(root, Vector3(cu, base_y + 0.02, cv), is_large)
 
-
-## Adds the right pointing triangular shadow on the floor under a cone.
-static func _add_cone_shadow(root: Node3D, origin: Vector3, is_large: bool) -> void:
-	var length := 2.1 if is_large else 1.35
-	var half := 0.78 if is_large else 0.48
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = PackedVector3Array([
-		origin + Vector3(0, 0, -half),
-		origin + Vector3(0, 0, half),
-		origin + Vector3(length, 0, -length * 0.65),
-	])
-	arrays[Mesh.ARRAY_NORMAL] = PackedVector3Array([Vector3.UP, Vector3.UP, Vector3.UP])
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0x48 / 255.0, 0x48 / 255.0, 0x48 / 255.0, 0.65)
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.disable_receive_shadows = true
-	var inst := MeshInstance3D.new()
-	inst.name = "ConeShadow"
-	inst.mesh = mesh
-	inst.material_override = mat
-	inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	root.add_child(inst)
 
 
 ## Adds two poles with checkered flags at the rotated left and right side points.
@@ -356,8 +322,8 @@ static func _build_flags(root: Node3D, block: Dictionary, rot: float) -> void:
 		flag.rotation.y = deg_to_rad(rot)
 
 
-## Adds the glass marble: contact shadow and the ray traced glass sphere (its inner core of
-## eight dots is traced by the shader).
+## Adds the glass marble: the ray traced glass sphere (its inner core of eight dots is traced
+## by the shader) and a shadow only copy for the sun shadow.
 static func _build_marble(root: Node3D, block: Dictionary, rot: float) -> void:
 	var marble := Node3D.new()
 	marble.name = "Marble"
@@ -368,19 +334,6 @@ static func _build_marble(root: Node3D, block: Dictionary, rot: float) -> void:
 	if block.get("elemY") is float or block.get("elemY") is int: y = float(block["elemY"])
 	marble.position = Vector3(at.x, y + MARBLE_RADIUS, at.y)
 	root.add_child(marble)
-	var shadow_mesh := CylinderMesh.new()
-	shadow_mesh.top_radius = MARBLE_RADIUS * 0.88
-	shadow_mesh.bottom_radius = MARBLE_RADIUS * 0.88
-	shadow_mesh.height = 0.001
-	shadow_mesh.radial_segments = 24
-	shadow_mesh.rings = 1
-	var shadow_mat := StandardMaterial3D.new()
-	shadow_mat.albedo_color = Color(0x18 / 255.0, 0x18 / 255.0, 0x18 / 255.0, 0.48)
-	shadow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	shadow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	var shadow := _add_mesh(marble, shadow_mesh, shadow_mat, Vector3(0, -MARBLE_RADIUS + 0.02, 0))
-	shadow.name = "MarbleShadow"
-	shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var marble_color := _parse_marble_color(block.get("marbleColor"))
 	var sphere_mesh := SphereMesh.new()
 	sphere_mesh.radius = MARBLE_RADIUS
@@ -389,7 +342,12 @@ static func _build_marble(root: Node3D, block: Dictionary, rot: float) -> void:
 	sphere_mesh.rings = 16
 	var sphere := _add_mesh(marble, sphere_mesh, make_glass_material(marble_color, rot), Vector3.ZERO)
 	sphere.name = "MarbleSphere"
-	sphere.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	# The glass is drawn in the transparent pass, which casts no shadow: an opaque copy that is
+	# only drawn in the shadow map gives the marble its sun shadow.
+	sphere.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var caster := _add_mesh(marble, sphere_mesh, StandardMaterial3D.new(), Vector3.ZERO)
+	caster.name = SHADOW_CASTER_NAME
+	caster.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 
 
 ## Returns the ray traced glass material of a marble (shaders/glass_marble.gdshader): tinted by

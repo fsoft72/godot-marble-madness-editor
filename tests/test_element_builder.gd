@@ -166,3 +166,17 @@ func test_tube_path() -> void:
 	assert_eq(posts, 1, "one post")
 	assert_true(ElementBuilder.collision_faces(node, {"element": "tube_path"}).size() > 0, "solid")
 	node.free()
+
+
+## Shadows come from the sun: the marble has a shadow only caster, no fake floor shadows exist.
+func test_real_shadows_only() -> void:
+	var marble := _build("marble_start")
+	var caster: MeshInstance3D = null
+	for m in _meshes(marble):
+		assert_true(m.name != "MarbleShadow", "no fake marble shadow")
+		if m.name == ElementBuilder.SHADOW_CASTER_NAME: caster = m
+	assert_true(caster != null and caster.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY, "shadow caster")
+	marble.free()
+	var cone := _build("cone_small")
+	for m in _meshes(cone): assert_true(m.name != "ConeShadow", "no fake cone shadow")
+	cone.free()

@@ -1,33 +1,13 @@
 """Builds a level JSON (blocks with per tile corners) from the reconstructed lattice."""
-import json
-from collections import defaultdict
 
 import numpy as np
 
 from vertices import HS, height
 
 BLOCK = 3
-SHADE_LEVELS = [0.2, 0.27, 0.35, 0.52, 0.75, 0.99]
 
 
-def tile_shades(group):
-    """Returns the shade entry of a tile from its fill components: one value, or [first, second]
-    triangle values for split tiles, plus the split ("main" splits left/right on screen,
-    "anti" splits top/bottom)."""
-    if len(group) == 1:
-        return SHADE_LEVELS[group[0].level], None
-    group = sorted(group, key=lambda t: -len(t.pixels))[:2]
-    a, b = group
-    dx = abs(a.cx - b.cx)
-    dy = abs(a.cy - b.cy)
-    if dx >= dy:
-        left, right = (a, b) if a.cx < b.cx else (b, a)
-        return [SHADE_LEVELS[left.level], SHADE_LEVELS[right.level]], 'main'
-    top, bottom = (a, b) if a.cy < b.cy else (b, a)
-    return [SHADE_LEVELS[top.level], SHADE_LEVELS[bottom.level]], 'anti'
-
-
-def build(fit_tiles, verts, offsets, sy0, origin, paint=None):
+def build(fit_tiles, verts, offsets, sy0, origin):
     """Returns the level dictionary from the fit.
 
     fit_tiles: {(comp, k, m): [level0, level1, split]}; verts: {(comp, kv, mv): sy};
@@ -45,12 +25,11 @@ def build(fit_tiles, verts, offsets, sy0, origin, paint=None):
         z = (m + off - k) // 2 + z0
         bx, bz = x // BLOCK, z // BLOCK
         c, r = x % BLOCK, z % BLOCK
-        b = blocks.setdefault((bx, bz), {'tiles': [[None] * 3 for _ in range(3)], 'shades': [[None] * 3 for _ in range(3)], 'splits': [['main'] * 3 for _ in range(3)]})
+        b = blocks.setdefault((bx, bz), {'tiles': [[None] * 3 for _ in range(3)], 'splits': [['main'] * 3 for _ in range(3)]})
         if b['tiles'][r][c] is not None:
             # Two components claim the same tile: keep the higher one (it is the visible one).
             if max(b['tiles'][r][c]) >= max(hs): continue
         b['tiles'][r][c] = hs
-        b['shades'][r][c] = SHADE_LEVELS[lv0] if lv0 == lv1 else [SHADE_LEVELS[lv0], SHADE_LEVELS[lv1]]
         b['splits'][r][c] = split
     out = {}
     max_b = 0
@@ -64,9 +43,7 @@ def build(fit_tiles, verts, offsets, sy0, origin, paint=None):
             'bx': bx, 'bz': bz, 'isVoid': False, 'elevation': elev, 'slope': 0, 'tilt': 0,
             'rotation': 0, 'shape': 'flat', 'element': 'none', 'elemRotation': 0,
             'decal': 'none', 'decalRotation': 0, 'tiles': tiles_rel, 'tileSplit': b['splits'],
-            'subShades': b['shades'],
         }
-        if paint and (bx, bz) in paint: out[f'{bx},{bz}']['paint'] = paint[(bx, bz)]
     return {'version': 1, 'cols': max_b, 'rows': max_b, 'blocks': out}
 
 
