@@ -25,8 +25,8 @@ def bake(img, fit_tiles, verts, offsets, sy0, origin):
     raster = []
     for key, (l0, l1, sp) in fit_tiles.items():
         comp, k, m = key
-        if comp not in offsets: continue
-        off = offsets[comp]
+        if key not in offsets: continue
+        off = offsets[key]
         c = corners_of(k, m, lambda kv, mv: verts[(comp, kv, mv)])
         ys, xs, lev, tx, ty = raster_tile(c, (l0, l1), sp, texels=True)
         inb = (ys >= 0) & (ys < h) & (xs >= 0) & (xs < w)
@@ -43,7 +43,7 @@ def bake(img, fit_tiles, verts, offsets, sy0, origin):
     x0, z0 = origin
     for i, (key, ys, xs, lev, tx, ty, depth) in enumerate(raster):
         comp, k, m = key
-        mm = m + offsets[comp]
+        mm = m + offsets[key]
         x = (mm + k) // 2 + x0
         z = (mm - k) // 2 + z0
         bx, bz, c, r = x // 3, z // 3, x % 3, z % 3

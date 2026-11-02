@@ -39,14 +39,17 @@ class Part:
 	var positions := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var uvs := PackedVector2Array()
+	var uv2s := PackedVector2Array()
 	var colors := PackedColorArray()
 
 	## Appends a triangle given in the JS (counter-clockwise) order, emitted clockwise for Godot.
-	func add_triangle(p: Array, n: Vector3, uv: Array, color: Color) -> void:
+	## uv2 (optional, per vertex) carries the wall data read by the wall shader.
+	func add_triangle(p: Array, n: Vector3, uv: Array, color: Color, uv2: Array = []) -> void:
 		for i in [0, 2, 1]:
 			positions.append(p[i])
 			normals.append(n)
 			uvs.append(uv[i])
+			uv2s.append(uv2[i] if not uv2.is_empty() else Vector2(0.0, -1.0))
 			colors.append(color)
 
 
@@ -62,6 +65,7 @@ static func build(block: Dictionary) -> ArrayMesh:
 		arrays[Mesh.ARRAY_VERTEX] = part.positions
 		arrays[Mesh.ARRAY_NORMAL] = part.normals
 		arrays[Mesh.ARRAY_TEX_UV] = part.uvs
+		arrays[Mesh.ARRAY_TEX_UV2] = part.uv2s
 		arrays[Mesh.ARRAY_COLOR] = part.colors
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		var idx := mesh.get_surface_count() - 1
@@ -113,6 +117,9 @@ static func _material_for(surface_name: String, block: Dictionary) -> Material:
 		if paint is Array and not paint.is_empty():
 			return TextureFactory.make_top_material(TextureFactory.paint_image(paint))
 		return TextureFactory.top_surface_material(str(block.get("decal", "none")), int(_num(block.get("decalRotation"))))
+	var wall_shadow: Variant = block.get("wallShadow")
+	if surface_name != SURFACE_WALL_RIGHT and wall_shadow is Array and wall_shadow.size() == 3:
+		return TextureFactory.make_baked_wall_material(wall_shadow)
 	return TextureFactory.cliff_materials()[surface_name]
 
 
@@ -302,7 +309,7 @@ static func _add_tiles(block: Dictionary, tiles: Array, parts: Dictionary) -> vo
 static func _add_tile_walls(tiles: Array, parts: Dictionary, c: int, r: int, h: Array, p00: Vector3, p10: Vector3, p01: Vector3, p11: Vector3) -> void:
 	# Front-left edge (v = r + 1), normal +Z: joined to the next row's h00, h10.
 	if not _joined(BlockSurface.tile_corners(tiles, c, r + 1), [0, 1], [h[2], h[3]]):
-		_add_wall_with_trim(parts, true, p01, p11, c, c + 1)
+		_add_wall_with_trim(parts, true, p01, p11, c, c + 1, Constants.DEFAULT_TRIM_HEIGHT, Constants.DEFAULT_TRIM_HEIGHT, r)
 	# Back-right edge (v = r), normal -Z: joined to the previous row's h01, h11.
 	if not _joined(BlockSurface.tile_corners(tiles, c, r - 1), [2, 3], [h[0], h[1]]):
 		_add_wall_with_trim(parts, true, p10, p00, c, c + 1)
@@ -372,7 +379,8 @@ static func _add_stepped_tile(parts: Dictionary, c: int, r: int, y: float) -> vo
 
 ## Adds a cliff wall from top edge p0 -> p1 down to PILLAR_BOTTOM (port of addCliffWallWithTrim).
 ## With_trim walls (yellow) get an orange trim band on top; the others (crimson) have none.
-static func _add_wall_with_trim(parts: Dictionary, with_trim: bool, p0: Vector3, p1: Vector3, u0: float, u1: float, trim0: float = Constants.DEFAULT_TRIM_HEIGHT, trim1: float = Constants.DEFAULT_TRIM_HEIGHT) -> void:
+## row is the tile row of a +Z wall of a "tiles" block (for the baked wall shadow), else -1.
+static func _add_wall_with_trim(parts: Dictionary, with_trim: bool, p0: Vector3, p1: Vector3, u0: float, u1: float, trim0: float = Constants.DEFAULT_TRIM_HEIGHT, trim1: float = Constants.DEFAULT_TRIM_HEIGHT, row: int = -1) -> void:
 	var dx := p1.x - p0.x
 	var dz := p1.z - p0.z
 	var length := Vector2(dx, dz).length()
@@ -382,19 +390,22 @@ static func _add_wall_with_trim(parts: Dictionary, with_trim: bool, p0: Vector3,
 	if with_trim:
 		var mid0 := p0.y - trim0
 		var mid1 := p1.y - trim1
-		_push_wall_quad(parts[SURFACE_TRIM], n, p0, p1, p0.y, p1.y, mid0, mid1, u0, u1)
-		_push_wall_quad(parts[SURFACE_WALL], n, p0, p1, mid0, mid1, bottom, bottom, u0, u1)
+		_push_wall_quad(parts[SURFACE_TRIM], n, p0, p1, p0.y, p1.y, mid0, mid1, u0, u1, row)
+		_push_wall_quad(parts[SURFACE_WALL], n, p0, p1, mid0, mid1, bottom, bottom, u0, u1, row)
 	else:
-		_push_wall_quad(parts[SURFACE_WALL_RIGHT], n, p0, p1, p0.y, p1.y, bottom, bottom, u0, u1)
+		_push_wall_quad(parts[SURFACE_WALL_RIGHT], n, p0, p1, p0.y, p1.y, bottom, bottom, u0, u1, row)
 
 
 ## Pushes a wall quad (two triangles). V is 0 at the top edge and 1 at the bottom edge
-## (Godot orientation of the JS 1.0 top / 0.0 bottom).
-static func _push_wall_quad(part: Part, n: Vector3, p0: Vector3, p1: Vector3, top0: float, top1: float, bot0: float, bot1: float, u0: float, u1: float) -> void:
+## (Godot orientation of the JS 1.0 top / 0.0 bottom). UV2 = (height of the wall top edge at
+## that end, tile row of the wall or -1), so the shader knows the depth below the edge.
+static func _push_wall_quad(part: Part, n: Vector3, p0: Vector3, p1: Vector3, top0: float, top1: float, bot0: float, bot1: float, u0: float, u1: float, row: int = -1) -> void:
 	var a := Vector3(p0.x, top0, p0.z)
 	var b := Vector3(p0.x, bot0, p0.z)
 	var c := Vector3(p1.x, bot1, p1.z)
 	var d := Vector3(p1.x, top1, p1.z)
 	var white := Color.WHITE
-	part.add_triangle([a, b, c], n, [Vector2(u0, 0), Vector2(u0, 1), Vector2(u1, 1)], white)
-	part.add_triangle([a, c, d], n, [Vector2(u0, 0), Vector2(u1, 1), Vector2(u1, 0)], white)
+	var e0 := Vector2(p0.y, row)
+	var e1 := Vector2(p1.y, row)
+	part.add_triangle([a, b, c], n, [Vector2(u0, 0), Vector2(u0, 1), Vector2(u1, 1)], white, [e0, e0, e1])
+	part.add_triangle([a, c, d], n, [Vector2(u0, 0), Vector2(u1, 1), Vector2(u1, 0)], white, [e0, e1, e1])

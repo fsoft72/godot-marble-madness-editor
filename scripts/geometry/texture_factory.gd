@@ -140,6 +140,32 @@ static func cliff_materials() -> Dictionary:
 	return mats
 
 
+## Samples per world unit along a wall of the baked wall shadow.
+const WALL_SHADOW_SAMPLES := 8
+## Depth range (world units below the wall top edge) encoded in the wall shadow texture.
+const WALL_SHADOW_RANGE := 64.0
+
+
+## Returns a yellow wall material with a baked shadow: wall_shadow holds 3 rows (tile rows of
+## the +Z walls of a "tiles" block) of 24 [start, end] depth intervals below the wall top (one
+## per 1/8 unit along X); inside the interval the wall is in the shadow, outside it is lit;
+## [-1, -1] keeps the sun shadow.
+static func make_baked_wall_material(wall_shadow: Array) -> ShaderMaterial:
+	var w := WALL_SHADOW_SAMPLES * 3
+	var img := Image.create(w, 3, false, Image.FORMAT_RGF)
+	for r in 3:
+		var row: Variant = wall_shadow[r]
+		for x in w:
+			var v := Vector2(-1.0, -1.0)
+			if row is Array and x < row.size() and row[x] is Array and row[x].size() == 2:
+				v = Vector2(BlockSurface._num(row[x][0]), BlockSurface._num(row[x][1]))
+			img.set_pixel(x, r, Color(v.x / WALL_SHADOW_RANGE, v.y / WALL_SHADOW_RANGE, 0, 1))
+	var mat := _wall_material(WALL_YELLOW, WALL_SEAM_LIT, WALL_ORANGE, WALL_SEAM_DARK)
+	mat.set_shader_parameter("wall_shadow", ImageTexture.create_from_image(img))
+	mat.set_shader_parameter("has_wall_shadow", true)
+	return mat
+
+
 ## Returns a wall shader material with the given stripe and seam colors (0..255 sRGB).
 static func _wall_material(stripe_lit: Vector3, seam_lit: Vector3, stripe_shadow: Vector3, seam_shadow: Vector3) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()

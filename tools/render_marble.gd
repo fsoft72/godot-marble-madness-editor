@@ -41,6 +41,8 @@ func _render() -> void:
 	marble.freeze = true
 	marble.global_position = Vector3(4.5, 1.0 + Marble.RADIUS, 4.5)
 	marble.rotation = Vector3(0.4, 0.8, 0.2)
+	for i in 3:
+		await physics_frame
 	var cam := Camera3D.new()
 	vp.add_child(cam)
 	if _args.get("ortho", "0") == "1":

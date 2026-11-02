@@ -15,9 +15,10 @@ from lattice import neighbors, assign  # noqa: E402
 from vertices import estimate  # noqa: E402
 from optimize import Fit, Grower  # noqa: E402
 from walls import votes  # noqa: E402
-from assemble import reference_classes, place  # noqa: E402
+from assemble import reference_classes, place, refine_groups  # noqa: E402
 from build_level import build, lattice_bounds  # noqa: E402
 from bake import bake  # noqa: E402
+from bake_walls import bake_walls  # noqa: E402
 from place_elements import place as place_elements  # noqa: E402
 from vertices import height, HS  # noqa: E402
 
@@ -81,6 +82,7 @@ def main():
     sy0 = 0.0
     offsets = place(fit_tiles, verts, ref_cls, sy0, root, votes(cells, cell_labels, img))
     if args.cache: pickle.dump(offsets, open(args.cache + '.offsets', 'wb'))
+    offsets = refine_groups(fit_tiles, verts, ref_cls, offsets, sy0)
     write_level(img, fit_tiles, verts, offsets, args.out, not args.no_paint)
     return 0
 
@@ -88,13 +90,19 @@ def main():
 def write_level(img, fit_tiles, verts, offsets, out_path, with_paint):
     """Chooses the height datum and the world origin, then writes the level JSON."""
     # Height datum: the lowest vertex sits at height LOWEST_HEIGHT.
-    lowest = min(height(mv + offsets[c], sy, 0.0) for (c, kv, mv), sy in verts.items() if c in offsets)
+    comp_off = {}
+    for (c, k, m), o in offsets.items(): comp_off.setdefault(c, o)
+    lowest = min(height(mv + comp_off[c], sy, 0.0) for (c, kv, mv), sy in verts.items() if c in comp_off)
     sy0 = (LOWEST_HEIGHT - lowest) * HS
     min_x, min_z, max_x, max_z = lattice_bounds(fit_tiles, offsets)
     # Origin: one free block row around the tiles, aligned so lattice tiles fall on whole blocks.
     origin = (3 - min_x + (min_x % 3), 3 - min_z + (min_z % 3))
     paint = bake(img, fit_tiles, verts, offsets, sy0, origin) if with_paint else None
     level = build(fit_tiles, verts, offsets, sy0, origin, paint)
+    if with_paint:
+        for (bx, bz), rows in bake_walls(img, fit_tiles, verts, offsets, sy0, origin).items():
+            block = level['blocks'].get(f'{bx},{bz}')
+            if block is not None: block['wallShadow'] = rows
     s_ = (295.0 - sy0) / 4.0
     level['arcadeFocus'] = [round((s_ + 18.0) / 2 + origin[0], 6), 0.0, round((s_ - 18.0) / 2 + origin[1], 6)]
     place_elements(level)

@@ -10,9 +10,10 @@ const POST_HEIGHT := 0.55
 const TUBE_RADIUS := 0.26
 const MARBLE_RADIUS := 0.52
 const DEFAULT_MARBLE_COLOR := 0xe61922
-const POLE_HEIGHT := 1.95
-const FLAG_WIDTH := 0.92
-const FLAG_HEIGHT := 0.65
+## Goal flag pole and cloth, measured on the arcade reference (pole 22 pixels, cloth 12x11).
+const POLE_HEIGHT := 2.25
+const FLAG_WIDTH := 1.2
+const FLAG_HEIGHT := 1.1
 const ROUND_SEGMENTS := 12
 const GLASS_SHADER_PATH := "res://shaders/glass_marble.gdshader"
 ## Height of the invisible copy of a tube collider that stops the marble climbing over the rail.
@@ -246,6 +247,8 @@ static func _flat_shaded(source: Mesh) -> ArrayMesh:
 		var face := raw_normal.normalized()
 		var smooth: Vector3 = src_normals[tri[0]] + src_normals[tri[1]] + src_normals[tri[2]]
 		if face.dot(smooth) < 0.0: face = -face
+		# Godot front faces are clockwise: the counter-clockwise normal must point inward.
+		if raw_normal.dot(face) > 0.0: tri = [tri[0], tri[2], tri[1]]
 		for i in tri:
 			out_verts.append(verts[i])
 			out_normals.append(face)
@@ -278,6 +281,7 @@ static func _build_cone(root: Node3D, block: Dictionary, rot: float, is_large: b
 		cu = c.x
 		cv = c.y
 	var base_y := BlockSurface._num(block.get("elevation")) if shape == "pit_stepped" else BlockSurface.surface_y(block, cu, cv)
+	if block.get("elemY") is float or block.get("elemY") is int: base_y = float(block["elemY"])
 	var mat := toon_material(CONE_RAMP)
 	var source := CylinderMesh.new()
 	source.top_radius = 0.0
@@ -346,8 +350,10 @@ static func _build_flags(root: Node3D, block: Dictionary, rot: float) -> void:
 		var p := Vector2(foot.x, foot.z)
 		var y := foot.y
 		_add_mesh(root, pole_mesh, pole_mat, Vector3(p.x, y + POLE_HEIGHT * 0.5, p.y))
-		var flag := _add_mesh(root, flag_mesh, flag_mat, Vector3(p.x - 0.25, y + POLE_HEIGHT - FLAG_HEIGHT * 0.5, p.y - 0.25))
-		flag.rotation.y = PI / 4.0 + deg_to_rad(rot)
+		# The cloth hangs from the pole along the block X axis (turned by elemRotation).
+		var along := Vector3(cos(deg_to_rad(rot)), 0.0, -sin(deg_to_rad(rot)))
+		var flag := _add_mesh(root, flag_mesh, flag_mat, Vector3(p.x, y + POLE_HEIGHT - FLAG_HEIGHT * 0.5, p.y) + along * FLAG_WIDTH * 0.5)
+		flag.rotation.y = deg_to_rad(rot)
 
 
 ## Adds the glass marble: contact shadow and the ray traced glass sphere (its inner core of
@@ -359,6 +365,7 @@ static func _build_marble(root: Node3D, block: Dictionary, rot: float) -> void:
 	var offset: Variant = block.get("elemOffset")
 	if offset is Array and offset.size() == 2: at = Vector2(BlockSurface._num(offset[0]), BlockSurface._num(offset[1]))
 	var y := BlockSurface.surface_y(block, at.x, at.y)
+	if block.get("elemY") is float or block.get("elemY") is int: y = float(block["elemY"])
 	marble.position = Vector3(at.x, y + MARBLE_RADIUS, at.y)
 	root.add_child(marble)
 	var shadow_mesh := CylinderMesh.new()

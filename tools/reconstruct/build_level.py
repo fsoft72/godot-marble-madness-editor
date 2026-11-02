@@ -31,14 +31,14 @@ def build(fit_tiles, verts, offsets, sy0, origin, paint=None):
     """Returns the level dictionary from the fit.
 
     fit_tiles: {(comp, k, m): [level0, level1, split]}; verts: {(comp, kv, mv): sy};
-    offsets: {comp: m offset} (components missing from it are skipped);
+    offsets: {tile key: m offset} (tiles missing from it are skipped);
     origin: world tile coordinates (x0, z0) of lattice x = 0, z = 0.
     """
     blocks = {}
     x0, z0 = origin
     for (comp, k, m), (lv0, lv1, split) in fit_tiles.items():
-        if comp not in offsets: continue
-        off = offsets[comp]
+        if (comp, k, m) not in offsets: continue
+        off = offsets[(comp, k, m)]
         corners = [(k, m), (k + 1, m + 1), (k - 1, m + 1), (k, m + 2)]  # h00, h10, h01, h11
         hs = [height(mv + off, verts[(comp, kv, mv)], sy0) for kv, mv in corners]
         x = (m + off + k) // 2 + x0
@@ -74,8 +74,8 @@ def lattice_bounds(fit_tiles, offsets):
     """Returns (min x, min z, max x, max z) of the placed tiles in lattice coordinates."""
     xs, zs = [], []
     for (comp, k, m) in fit_tiles:
-        if comp not in offsets: continue
-        mm = m + offsets[comp]
+        if (comp, k, m) not in offsets: continue
+        mm = m + offsets[(comp, k, m)]
         xs.append((mm + k) // 2)
         zs.append((mm - k) // 2)
     return min(xs), min(zs), max(xs), max(zs)

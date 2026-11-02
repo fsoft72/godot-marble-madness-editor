@@ -29,6 +29,7 @@ static func start_position(level: LevelData, marble_radius: float) -> Vector3:
 	var block := level.get_block(cells[0].x, cells[0].y)
 	var at := element_point(block)
 	var y := BlockSurface.surface_y(block, at.x, at.y)
+	if block.get("elemY") is float or block.get("elemY") is int: y = float(block["elemY"])
 	return LevelView.grid_to_world(cells[0].x, cells[0].y) + Vector3(at.x, y + marble_radius + START_LIFT, at.y)
 
 

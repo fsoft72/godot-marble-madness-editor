@@ -20,7 +20,7 @@ def point_depth(mv, y):
     return 0.6123724 * mv + 0.5 * y
 
 
-def _raster_tri(p, d, zbuf, cls, value):
+def _raster_tri(p, d, zbuf, cls, value, owner=None, oid=0):
     """Rasterizes a screen triangle p (3x2) with per vertex depth d into zbuf/cls."""
     x0 = max(int(np.floor(p[:, 0].min())), 0); x1 = min(int(np.ceil(p[:, 0].max())), W)
     y0 = max(int(np.floor(p[:, 1].min())), 0); y1 = min(int(np.ceil(p[:, 1].max())), H)
@@ -39,6 +39,7 @@ def _raster_tri(p, d, zbuf, cls, value):
     win = inside & (z > sub_z)
     sub_z[win] = z[win]
     sub_c[win] = value
+    if owner is not None: owner[y0:y1, x0:x1][win] = oid
 
 
 def render(tiles):
@@ -48,13 +49,14 @@ def render(tiles):
     return render_into(tiles, np.full((H, W), -1e9), np.zeros((H, W), int))[1]
 
 
-def render_into(tiles, zbuf, cls):
-    """Renders tiles over existing depth and class buffers (modified in place); returns both."""
-    for corners, hs, mvs, wall_x, wall_z in tiles:
+def render_into(tiles, zbuf, cls, owner=None):
+    """Renders tiles over existing depth and class buffers (modified in place); returns both.
+    owner, when given, receives the index in `tiles` of the front-most tile of each pixel."""
+    for oid, (corners, hs, mvs, wall_x, wall_z) in enumerate(tiles):
         d = np.array([point_depth(mv, h) for mv, h in zip(mvs, hs)])
         top, right, left, bottom = range(4)
         for tri in ((top, left, bottom), (top, bottom, right)):
-            _raster_tri(corners[list(tri)], d[list(tri)], zbuf, cls, TOP)
+            _raster_tri(corners[list(tri)], d[list(tri)], zbuf, cls, TOP, owner, oid)
         for flag, (i, j), value in ((wall_x, (right, bottom), WALL_X), (wall_z, (left, bottom), WALL_Z)):
             if not flag: continue
             pi, pj = corners[i], corners[j]
@@ -63,6 +65,6 @@ def render_into(tiles, zbuf, cls):
             qj = pj + [0, drop * HS]
             di = d[i] - 0.5 * drop
             dj = d[j] - 0.5 * drop
-            _raster_tri(np.array([pi, pj, qj]), np.array([d[i], d[j], dj]), zbuf, cls, value)
-            _raster_tri(np.array([pi, qj, qi]), np.array([d[i], dj, di]), zbuf, cls, value)
+            _raster_tri(np.array([pi, pj, qj]), np.array([d[i], d[j], dj]), zbuf, cls, value, owner, oid)
+            _raster_tri(np.array([pi, qj, qi]), np.array([d[i], dj, di]), zbuf, cls, value, owner, oid)
     return zbuf, cls

@@ -5,9 +5,9 @@ extends RefCounted
 const AMBIENT_ENERGY := 0.72
 const SUN_COLOR := Color("fffaf0")
 const SUN_ENERGY := 1.15
-## Sun from azimuth -45 and elevation 47 degrees: fitted to the shadows of the arcade reference
+## Sun from azimuth -60 and elevation 52 degrees: fitted to the shadows of the arcade reference
 ## (tools/render_level.gd --sun search).
-const SUN_POSITION := Vector3(-24.112, 36.568, 24.112)
+const SUN_POSITION := Vector3(-26.659, 39.401, 15.392)
 const FILL_COLOR := Color("90a8ff")
 const FILL_ENERGY := 0.25
 const FILL_POSITION := Vector3(25.0, 20.0, -20.0)

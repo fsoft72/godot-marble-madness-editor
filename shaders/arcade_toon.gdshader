@@ -9,7 +9,7 @@ uniform vec3 c2 = vec3(170.0, 34.0, 34.0);
 uniform vec3 c3 = vec3(221.0, 51.0, 51.0);
 uniform vec3 c4 = vec3(255.0, 136.0, 136.0);
 // N.L thresholds between the five colors.
-uniform vec4 thresholds = vec4(-0.2, 0.25, 0.7, 0.93);
+uniform vec4 thresholds = vec4(-0.2, 0.2, 0.5, 0.7);
 uniform bool use_shadows = true;
 
 vec3 to_linear(vec3 c) {

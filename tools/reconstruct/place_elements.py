@@ -61,11 +61,11 @@ def place(level, path=os.path.join(os.path.dirname(__file__), 'elements.json'), 
         p = ground(*cone['floor'])
         if p is None: continue
         b = _free_block(level, p[0], p[2], used)
-        claim(p, {'element': 'cone_large', 'coneSize': cone['size'], 'elemOffset': [round(p[0] - b['bx'] * 3, 3), round(p[2] - b['bz'] * 3, 3)]})
+        claim(p, {'element': 'cone_large', 'coneSize': cone['size'], 'elemOffset': [round(p[0] - b['bx'] * 3, 3), round(p[2] - b['bz'] * 3, 3)], 'elemY': round(p[1], 3)})
     p = ground(*spec['start'])
     if p is not None:
         b = _free_block(level, p[0], p[2], used)
-        claim(p, {'element': 'marble_start', 'elemOffset': [round(p[0] - b['bx'] * 3, 3), round(p[2] - b['bz'] * 3, 3)]})
+        claim(p, {'element': 'marble_start', 'elemOffset': [round(p[0] - b['bx'] * 3, 3), round(p[2] - b['bz'] * 3, 3)], 'elemY': round(p[1], 3)})
     flags = [ground(sx, sy) for sx, sy in spec['flags']]
     if all(f is not None for f in flags):
         b = _free_block(level, flags[0][0], flags[0][2], used)

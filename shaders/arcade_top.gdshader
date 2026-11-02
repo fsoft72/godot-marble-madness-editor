@@ -38,8 +38,9 @@ void fragment() {
 	int lit = level - offset;
 	int dark = min(level, shadow_level) - offset;
 	if (p.a > 0.75) {
+		// Baked texels already hold the reference light and shadow.
 		lit = int(round(p.g * 5.0));
-		dark = min(lit, shadow_level);
+		dark = lit;
 	}
 	lit_color = to_linear(ramp_color(ramp, lit));
 	shadow_color = to_linear(ramp_color(ramp, dark));
